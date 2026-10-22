@@ -1,0 +1,35 @@
+{
+  "appId": "com.lectern.app",
+  "appName": "Lectern",
+  "webDir": "www",
+  "backgroundColor": "#0E0E10",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0E0E10",
+    "allowsLinkPreview": false,
+    "preferredContentMode": "mobile"
+  },
+  "android": {
+    "backgroundColor": "#0E0E10",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2500,
+      "launchAutoHide": true,
+      "launchFadeOutDuration": 250,
+      "backgroundColor": "#0E0E10",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP",
+      "splashFullScreen": false,
+      "splashImmersive": false
+    },
+    "SystemBars": {
+      "style": "DARK",
+      "insetsHandling": "css"
+    },
+    "CapacitorHttp": {
+      "enabled": false
+    }
+  }
+}

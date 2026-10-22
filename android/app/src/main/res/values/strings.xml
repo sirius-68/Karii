@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Lectern</string>
+    <string name="title_activity_main">Lectern</string>
+    <string name="package_name">com.lectern.app</string>
+    <string name="custom_url_scheme">com.lectern.app</string>
+</resources>

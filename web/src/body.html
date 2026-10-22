@@ -1,0 +1,145 @@
+<div id="app">
+  <section class="tab" id="tab-explore" aria-label="Explore"></section>
+  <section class="tab" id="tab-search" aria-label="Search" hidden></section>
+  <section class="tab" id="tab-studio" aria-label="Studio" hidden></section>
+  <section class="tab" id="tab-library" aria-label="Library" hidden></section>
+  <section class="tab" id="tab-profile" aria-label="Profile" hidden></section>
+</div>
+
+<nav id="tabbar" aria-label="Main">
+  <button data-tab="explore" aria-label="Explore" aria-current="true"><svg class="i"><use href="#i-compass"/></svg></button>
+  <button data-tab="search" aria-label="Search"><svg class="i"><use href="#i-search"/></svg></button>
+  <button class="create" data-tab="studio" aria-label="Studio"><svg class="i lg"><use href="#i-audio-lines"/></svg></button>
+  <button data-tab="library" aria-label="Library"><svg class="i"><use href="#i-library"/></svg></button>
+  <button data-tab="profile" aria-label="Profile"><span class="av" id="tabAv"></span></button>
+</nav>
+
+<div id="mini" hidden>
+  <span class="th" id="miniTh"></span>
+  <div class="tx"><b id="miniT"></b><span id="miniS"></span></div>
+  <button class="circ sm ghost" id="miniPlay" aria-label="Play or pause"></button>
+  <button class="circ sm ghost" id="miniClose" aria-label="Close player"><svg class="i sm"><use href="#i-x"/></svg></button>
+  <i class="bar" id="miniBar"></i>
+</div>
+
+<div id="pages"></div>
+<div id="sheets"></div>
+<div id="onb" hidden></div>
+
+<!-- ===== Stage ===== -->
+<section id="stage" hidden aria-label="Prompter">
+  <video id="cam" playsinline muted autoplay></video>
+  <video id="pip" playsinline muted hidden></video>
+  <div id="nocam" hidden><p id="nocamMsg"></p></div>
+  <div id="prompt" class="backdrop">
+    <div id="scroller"><div id="text"></div></div>
+    <div id="band" aria-hidden="true"></div>
+    <div id="handle" tabindex="0" role="slider" aria-label="Focus point" aria-valuemin="10" aria-valuemax="80" title="Drag to move the focus point. Double-tap to reset."><svg class="i sm"><use href="#i-chevrons-up-down"/></svg></div>
+  </div>
+  <div id="kara" class="backdrop">
+    <div id="karaWrap"><div id="karaList"></div></div>
+    <span id="karaHint" hidden></span>
+    <div id="karaEmpty" hidden>Add some lyrics to this song first.</div>
+  </div>
+  <div id="topbar">
+    <button class="circ" id="backBtn" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    <button class="spill" id="camBtn" hidden><svg class="i sm"><use href="#i-camera"/></svg>Turn on camera</button>
+    <span class="sp"></span>
+    <div id="prog" aria-hidden="true"><i id="progFill"></i></div>
+    <span class="sp"></span>
+    <span class="spill"><span class="dot" id="dot"></span><span id="clock">0:00</span></span>
+  </div>
+  <div id="count" hidden aria-live="assertive"></div>
+  <div id="sdock">
+    <div id="tune" hidden>
+      <div class="tune-head"><h3>Tune</h3><button class="tlink" id="tuneClose">Done</button></div>
+      <label class="fld not-song">Speed <input type="range" id="speed" min="1" max="14" step="1"><output id="speedO"></output></label>
+      <label class="fld">Text size <input type="range" id="size" min="24" max="80" step="2"><output id="sizeO"></output></label>
+      <label class="fld">Opacity <input type="range" id="opac" min="30" max="100" step="5"><output id="opacO"></output></label>
+      <label class="fld not-song">Focus <input type="range" id="focusSl" min="10" max="80" step="1"><output id="focusO"></output></label>
+      <label class="fld only-song">Lyric timing <input type="range" id="offs" min="-2" max="2" step="0.05"><output id="offsO"></output></label>
+      <div class="fld only-line"><span>Voice</span><div class="chips" id="voiceSeg"><button class="chip" data-v="me">My voice</button><button class="chip" data-v="original">Original clip</button><button class="chip" data-v="dub">Dub clip</button><button class="chip" data-v="narrator">AI narrator</button></div></div>
+      <label class="fld only-narr">Narrator speed <input type="range" id="ttsRate" min="0.6" max="1.4" step="0.05"><output id="ttsRateO"></output></label>
+      <div class="fld only-cat"><span>Guide vocal</span><div class="wide"><button class="toggle" id="guideTg" role="switch" aria-checked="true" aria-label="Guide melody"></button></div></div>
+      <div class="fld not-song"><span>Music bed</span><div class="wide"><button class="chip" id="bedBtn"><svg class="i xs"><use href="#i-list-music"/></svg><span id="bedName">None</span></button></div></div>
+      <label class="fld not-song" id="bedVolRow">Bed volume <input type="range" id="bedVol" min="0" max="100" step="5"><output id="bedVolO"></output></label>
+      <div class="fld"><span>Countdown</span>
+        <div class="chips" id="cdSeg"><button class="chip" data-v="0">Off</button><button class="chip" data-v="3">3s</button><button class="chip" data-v="5">5s</button></div>
+      </div>
+      <div class="chips">
+        <button class="chip" id="mText" aria-pressed="false"><svg class="i xs"><use href="#i-mirror-rectangular"/></svg>Mirror text</button>
+        <button class="chip" id="mCam" aria-pressed="true"><svg class="i xs"><use href="#i-switch-camera"/></svg>Mirror preview</button>
+        <button class="chip" id="bdrop" aria-pressed="true"><svg class="i xs"><use href="#i-layers"/></svg>Text backdrop</button>
+      </div>
+    </div>
+    <div id="controls">
+      <button class="ctl" id="rewBtn"><span class="ic"><svg class="i"><use href="#i-skip-back"/></svg></span><span id="rewLbl">Top</span></button>
+      <button class="ctl" id="playBtn" aria-pressed="false"><span class="ic" id="playIc"></span><span id="playLbl">Rehearse</span></button>
+      <button class="ctl" id="rec" aria-label="Record"><span class="ic"><i></i></span><span id="recLbl">Record</span></button>
+      <button class="ctl" id="flipBtn"><span class="ic"><svg class="i"><use href="#i-switch-camera"/></svg></span>Flip</button>
+      <button class="ctl" id="tuneBtn" aria-pressed="false"><span class="ic"><svg class="i"><use href="#i-sliders-horizontal"/></svg></span>Tune</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Sync studio ===== -->
+<section id="sync" hidden aria-label="Sync lyrics">
+  <div class="sy-wrap">
+    <div class="sy-top">
+      <button class="circ" id="syClose" aria-label="Cancel"><svg class="i"><use href="#i-x"/></svg></button>
+      <div class="t"><small>Sync lyrics</small><b id="syTitle"></b></div>
+      <button class="btn white sm" id="sySave">Save</button>
+    </div>
+    <div class="sy-time"><span id="syNow">0:00</span><input type="range" id="sySeek" min="0" max="100" step="0.01" value="0" aria-label="Position"><span id="syDur">0:00</span></div>
+    <p class="hint" id="syNote" style="text-align:center" hidden>No music attached. Start your track elsewhere and press Play here at the same moment.</p>
+    <div class="sy-lines" aria-live="polite">
+      <div class="sy-prev" id="syPrev"></div>
+      <div class="sy-lbl" id="syLbl"></div>
+      <div class="sy-cur" id="syCur"></div>
+      <div class="sy-next" id="syNext"></div>
+    </div>
+    <div class="sy-count" id="syCount"></div>
+    <div class="sy-count" id="sySnap" style="margin-top:-8px"></div>
+    <div class="chips sy-speed" id="sySpeed"><button class="chip" data-v="0.5">0.5×</button><button class="chip" data-v="0.75">0.75×</button><button class="chip" data-v="1">1×</button></div>
+    <div class="sy-ctl">
+      <button class="ctl" id="syUndo"><span class="ic"><svg class="i"><use href="#i-undo-2"/></svg></span>Undo</button>
+      <button class="sy-tap" id="syTap">Tap</button>
+      <button class="ctl" id="syPlay"><span class="ic" id="syPlayIc"></span><span id="syPlayLbl">Play</span></button>
+    </div>
+    <p class="hint" style="text-align:center;margin-top:22px">Tap the moment each line starts · Space taps · Backspace undoes</p>
+  </div>
+</section>
+
+<!-- ===== Studio ===== -->
+<section id="studio" hidden aria-label="Studio">
+  <div class="st-wrap">
+    <div class="st-top">
+      <button class="circ" id="stClose" aria-label="Discard"><svg class="i"><use href="#i-x"/></svg></button>
+      <h1>Edit take</h1>
+      <button class="btn white sm" id="stSave">Save</button>
+    </div>
+    <div class="st-prev" id="stPrev"><canvas id="stCanvas"></canvas><button class="pp" id="stPP" aria-label="Play or pause"><span><svg class="i lg fill"><use href="#i-play"/></svg></span></button></div>
+    <div class="st-seek"><time id="stNow">0:00</time><input type="range" id="stSeek" min="0" max="1" step="0.01" value="0" aria-label="Position"><time id="stDur">0:00</time></div>
+    <div class="st-tabs" role="tablist">
+      <button role="tab" data-p="filters" aria-selected="true"><svg class="i sm"><use href="#i-aperture"/></svg>Filters</button>
+      <button role="tab" data-p="voice" aria-selected="false"><svg class="i sm"><use href="#i-audio-waveform"/></svg>Voice</button>
+      <button role="tab" data-p="mix" aria-selected="false"><svg class="i sm"><use href="#i-sliders-horizontal"/></svg>Mix</button>
+      <button role="tab" data-p="extras" aria-selected="false"><svg class="i sm"><use href="#i-sparkles"/></svg>Extras</button>
+    </div>
+    <div class="st-panel" id="stPanel"></div>
+    <div class="st-actions">
+      <button class="btn" id="stOriginal"><svg class="i sm"><use href="#i-download"/></svg>Save original</button>
+      <button class="btn white" id="stExport"><svg class="i sm"><use href="#i-wand-sparkles"/></svg>Render &amp; save</button>
+    </div>
+  </div>
+  <video id="stVideo" playsinline hidden></video>
+</section>
+<div id="render" hidden><div class="box"><div class="ring" id="rRing"><span id="rPct">0%</span></div><b>Rendering your take</b><p>Keep this tab open. It plays through once in real time.</p><button class="btn" id="rCancel">Cancel</button></div></div>
+
+<button id="bgjob" class="bgjob" hidden aria-live="polite"><span class="ring"></span><span class="tx"><b></b><span class="m"></span></span><span class="pct"></span></button>
+<div id="toast" hidden role="status"></div>
+<input type="file" id="fileAudio" accept="audio/*" hidden>
+<input type="file" id="fileLrc" accept=".lrc,.txt,text/plain" hidden>
+<input type="file" id="filePhoto" accept="image/*" hidden>
+<input type="file" id="fileClip" accept="audio/*,video/*" hidden>
+<input type="file" id="fileSong" accept="audio/*" hidden>
