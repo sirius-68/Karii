@@ -10,6 +10,8 @@ on:
 
 jobs:
   apk:
+    permissions:
+      contents: write   # to publish the APK on the "apk" branch
     # ubuntu-24.04 ships with the Android SDK preinstalled (ANDROID_HOME is set).
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -56,6 +58,19 @@ jobs:
           name: lectern-apk
           path: Lectern.apk
           if-no-files-found: error
+
+      # Also keep the latest APK as a plain file on the "apk" branch, so it can be
+      # downloaded from the repository's file list (Code → branch "apk" → Lectern.apk).
+      - name: Publish to the apk branch
+        run: |
+          mkdir -p /tmp/apkbranch && cp Lectern.apk /tmp/apkbranch/
+          printf 'Latest Android build of Lectern.\n\nBuilt from %s on %s.\n' "$GITHUB_SHA" "$(date -u +'%Y-%m-%d %H:%M UTC')" > /tmp/apkbranch/README.md
+          cd /tmp/apkbranch
+          git init -q -b apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -qm "Lectern.apk from ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk:apk
 
       # On failure, surface the end of the build log as an annotation so it can be
       # read from the run summary (and through the API) without downloading logs.
