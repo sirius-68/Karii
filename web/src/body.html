@@ -19,6 +19,7 @@
   <button data-tab="profile" aria-label="Profile"><span class="av" id="tabAv"></span></button>
 </nav>
 
+<button id="np" hidden aria-label="Now playing. Tap to manage."><span class="np-ic"></span><span class="np-t"><b></b><span></span></span><span class="np-x" role="button" aria-label="Stop"><svg class="i xs fill"><use href="#i-square"/></svg></span></button>
 <div id="mini" hidden>
   <span class="th" id="miniTh"></span>
   <div class="tx"><b id="miniT"></b><span id="miniS"></span></div>
@@ -52,8 +53,11 @@
     <span class="sp"></span>
     <div id="prog" aria-hidden="true"><i id="progFill"></i></div>
     <span class="sp"></span>
-    <span class="spill"><span class="dot" id="dot"></span><span id="clock">0:00</span></span>
+    <button class="circ sm glass" id="routeBtn" aria-label="Audio"></button>
+    <span class="spill"><span class="dot" id="dot"></span><span id="clock">0:00</span><span class="lvl" id="lvl" hidden><i id="lvlFill"></i></span></span>
   </div>
+  <div id="routeLine" hidden></div>
+  <div id="pausedBanner" hidden><b>Paused</b><span>Tap Resume to keep recording. It all saves as one video.</span></div>
   <div id="count" hidden aria-live="assertive"></div>
   <div id="sdock">
     <div id="tune" hidden>
@@ -120,7 +124,7 @@
   <div class="st-wrap">
     <div class="st-top">
       <button class="circ" id="stClose" aria-label="Discard"><svg class="i"><use href="#i-x"/></svg></button>
-      <h1>Edit take</h1>
+      <div class="st-title"><h1>Edit take</h1><span id="stSaved" class="stsaved" aria-live="polite"></span></div>
       <button class="btn white sm" id="stSave">Save</button>
     </div>
     <div class="st-prev" id="stPrev"><canvas id="stCanvas"></canvas><button class="pp" id="stPP" aria-label="Play or pause"><span><svg class="i lg fill"><use href="#i-play"/></svg></span></button></div>

@@ -56,10 +56,11 @@ function beatPlay(){
   if(!BEAT.nz) BEAT.nz=mkNoise(c);
   const comp=c.createDynamicsCompressor(); comp.threshold.value=-12; comp.ratio.value=3; comp.connect(c.destination);
   BEAT.out=c.createGain(); BEAT.out.gain.value=.8; BEAT.out.connect(comp); BEAT.comp=comp;
-  BEAT.step=0; BEAT.next=c.currentTime+0.08; BEAT.on=true; BEAT.queue=[];
+  AUDIO.claim('beat'); BEAT.step=0; BEAT.next=c.currentTime+0.08; BEAT.on=true; BEAT.queue=[];
   const sched=()=>{ const sd=60/BM.bpm/4; while(BEAT.next<c.currentTime+0.12){ playStep(c,BEAT.out,BM,BEAT.step,BEAT.next,BEAT.nz); BEAT.queue.push({s:BEAT.step,t:BEAT.next}); BEAT.next+=sd; BEAT.step++; } };
   sched(); BEAT.timer=setInterval(sched,25);
 }
+AUDIO.register('beat',{label:'Beat maker',sub:'Loop playing',icon:'drum',playing:()=>BEAT.on,stop:()=>beatStop(),open:()=>openBeatMaker(),here:()=>{ const e=STACK[STACK.length-1]; return !!(e&&e.name==='beat'); }});
 function beatStop(){ if(!BEAT.on) return; clearInterval(BEAT.timer); BEAT.on=false; const c=ac(), o=BEAT.out; try{ o.gain.setTargetAtTime(0,c.currentTime,.05); setTimeout(()=>{ try{ o.disconnect(); BEAT.comp.disconnect(); }catch(e){} },400); }catch(e){} BEAT.queue=[]; }
 async function renderBeat(B,seconds){
   const OAC=window.OfflineAudioContext||window.webkitOfflineAudioContext, sr=32000, sd=60/B.bpm/4, barDur=sd*16;
@@ -242,6 +243,11 @@ async function placeOnBeat(s,LP){
 /* ---------- Sound recorder ---------- */
 function openRecorder(){
   const R={stream:null,rec:null,chunks:[],t0:0,raf:0,blob:null,url:'',an:null,clean:true,backing:null,back:new Audio()};
+  const recPlay=()=>document.querySelector('#rcPlay');
+  AUDIO.register('recorder',{label:'Sound recorder',sub:()=>R.rec&&R.rec.state==='recording'?'Recording with backing':'Playback',icon:'mic',
+    playing:()=>!R.back.paused||!!(recPlay()&&!recPlay().paused), stop:()=>{ R.back.pause(); const p=recPlay(); if(p) p.pause(); },
+    here:()=>{ const e=STACK[STACK.length-1]; return !!(e&&e.name==='recorder'); }});
+  R.back.addEventListener('play',()=>AUDIO.claim('recorder'));
   const stopAll=()=>{ cancelAnimationFrame(R.raf); if(R.rec&&R.rec.state!=='inactive') R.rec.stop(); if(R.stream) R.stream.getTracks().forEach(t=>t.stop()); R.stream=null; R.back.pause(); };
   push('recorder',el=>{
     el.innerHTML=pbar('Sound recorder')+`

@@ -10,7 +10,7 @@ const GATE_REASONS={
   sing:['play','set-voice','clip-for','first-rec'],
   save:['like','addto','menu','dl','new-coll','coll-play','liked','colls','coll','downloads','recs'],
   create:['create','edit','beatmaker','lyricpad','recorder','scripts','clip-new','song-new','music-pick','music-remove','music-toggle','sync','lrc-import','lrc-export','sync-clear','auto-quick','auto-ai','auto-gen','timeline','clip-import','clip-remove'],
-  profile:['photo','edit-profile','share-profile','rec-open','rec-share','rec-dl','rec-remix','rec-menu']
+  profile:['photo','edit-profile','share-profile','rec-open','rec-share','rec-dl','rec-remix','rec-menu','draft-open','draft-menu']
 };
 const GATED=new Map(); Object.entries(GATE_REASONS).forEach(([r,list])=>list.forEach(a=>GATED.set(a,r)));
 const GATE_COPY={

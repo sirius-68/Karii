@@ -189,7 +189,7 @@ RENDER.library=function(){
     <div class="tiles">
       <button class="tile t-liked" data-act="liked"><span class="ct">${S.likes.size}</span>${ic('thumbs-up','ic')}Liked</button>
       <button class="tile t-coll" data-act="colls"><span class="ct">${S.colls.length}</span>${ic('list-music','ic')}Collections</button>
-      <button class="tile t-rec" data-act="recs"><span class="ct">${S.recs.length}</span>${ic('video','ic')}Recordings</button>
+      <button class="tile t-rec" data-act="recs"><span class="ct">${S.recs.length+S.drafts.length}</span>${ic('video','ic')}Recordings</button>
       <button class="tile t-dl" data-act="downloads">${ic('cloud-download','ic')}Downloads</button>
     </div>
     <div class="lib-h"><h2>My library</h2><button class="flt" data-act="libfilter">${esc(lbl)} ${ic('funnel','sm')}</button></div>
@@ -226,7 +226,7 @@ RENDER.profile=function(){
     ${next?`<div class="sec" style="margin-top:28px"><div class="pad"><h2 style="margin:0;font-size:1.45rem;font-weight:500;letter-spacing:-.025em">Complete your profile</h2><div class="mute" style="margin-top:2px">Step ${done+1} of 3</div></div>
       <div class="prog3">${steps.map(s=>`<i class="${s.done?'on':''}"></i>`).join('')}</div>
       <button class="card step" data-act="${next.act}"><div><b>${esc(next.t)}</b><span>${esc(next.s)}</span></div>${ic('chevron-right','chev')}</button></div>`:''}
-    <section class="sec">${secHead('Recordings',S.recs.length?'data-act="recs"':'')}
+    <section class="sec">${secHead('Recordings',S.recs.length||S.drafts.length?'data-act="recs"':'')}${S.drafts.length?`<button class="card step" data-act="recs" style="margin:0 20px 14px"><div><b>${S.drafts.length} draft${S.drafts.length>1?'s':''} in progress</b><span>Pick up where you left off</span></div>${ic('chevron-right','chev')}</button>`:''}
       ${S.recs.length?`<div class="recgrid">${S.recs.slice(0,9).map(recCell).join('')}</div>`:`<div class="empty">${ic('video')}<b>No recordings yet</b>Your takes appear here after you save them in the studio.<div style="margin-top:14px"><button class="btn white sm" data-act="first-rec">${ic('mic-vocal','sm')}Make your first take</button></div></div>`}
     </section>
     ${S.likes.size?`<section class="sec">${secHead('Liked',`data-act="liked"`)}<div class="hscroll">${[...S.likes].map(find).filter(Boolean).slice(0,10).map(x=>sqHTML(x)).join('')}</div></section>`:''}`;
@@ -485,8 +485,11 @@ function importLrc(s,text,quiet){
 }
 
 /* ================= Recordings ================= */
+function draftsHTML(){ if(!S.drafts.length) return '';
+  const ago=t=>{ const m=Math.round((Date.now()-t)/60000); return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'; };
+  return `<div class="lib-h" style="margin-top:4px"><h2>Drafts</h2><span class="mute" style="font-size:.85rem">${S.drafts.length}</span></div><div class="list">${S.drafts.map(d=>`<div class="row"><button class="rowmain" data-act="draft-open" data-id="${d.id}"><span class="th draft" style="${d.thumb?`background-image:url('${d.thumb}')`:''}">${d.thumb?'':ic('video','sm')}${d.dur?`<span class="dur">${fmt(d.dur)}</span>`:''}</span><span class="tx"><b>${esc(d.title)}${d.recovered?'<span class="tag">Recovered</span>':''}</b><span>Edited ${ago(d.updated)}</span></span></button><button class="kebab" data-act="draft-menu" data-id="${d.id}" aria-label="Draft options">${ic('ellipsis-vertical')}</button></div>`).join('')}</div>`; }
 function openRecs(){ push('recs',el=>{
-  el.innerHTML=pbar('Recordings')+(S.recs.length?`<div class="recgrid" style="margin-top:6px">${S.recs.map(recCell).join('')}</div>`:`<div class="empty">${ic('video')}<b>No recordings yet</b>Record a take, polish it in the studio, and it lands here.</div>`);
+  el.innerHTML=pbar('Recordings')+draftsHTML()+(S.drafts.length&&S.recs.length?'<div class="lib-h"><h2>Saved</h2></div>':'')+(S.recs.length?`<div class="recgrid" style="margin-top:6px">${S.recs.map(recCell).join('')}</div>`:S.drafts.length?'':`<div class="empty">${ic('video')}<b>No recordings yet</b>Record a take, polish it in the studio, and it lands here.</div>`);
 }); }
 function openRec(id){ push('rec',async el=>{
   const r=S.recs.find(x=>x.id===id); if(!r){ el.innerHTML=pbar('Recording')+'<div class="empty">Deleted.</div>'; return; }
@@ -717,6 +720,9 @@ function syncPreviewUI(){
   const top=STACK[STACK.length-1]; if(top&&top.name==='detail'){ const b=top.el.querySelector('.dacts .btn.white'); const it=find(PREV.id); if(b && it && b.dataset.id===it.id) b.innerHTML=ic(on?'pause':'play','fill')+(on?'Pause':'Play'); }
 }
 ['play','pause','ended'].forEach(ev=>PREV.audio.addEventListener(ev,syncPreviewUI));
+PREV.audio.addEventListener('play',()=>AUDIO.claim('preview'));
+AUDIO.register('preview',{label:()=>{ const it=find(PREV.id); return it?it.title:'Preview'; },sub:'Instrumental preview',icon:'audio-waveform',
+  playing:()=>!!PREV.id&&!PREV.audio.paused, stop:()=>stopPreview(), open:()=>{ if(PREV.id) openDetail(PREV.id); }, here:()=>!$('#mini').hidden});
 PREV.audio.addEventListener('timeupdate',()=>{ const d=PREV.audio.duration||1; $('#miniBar').style.width=(PREV.audio.currentTime/d*100)+'%'; const top=STACK[STACK.length-1]; if(top&&top.name==='detail'){ const s=top.el.querySelector('#dSeek'); const n=top.el.querySelector('#dNow'); const it=find(PREV.id); if(s && it && top.el.querySelector(`[data-act="play"][data-id="${it.id}"]`)){ s.value=PREV.audio.currentTime; n.textContent=fmt(PREV.audio.currentTime); } } });
 $('#miniPlay').onclick=()=>{ if(PREV.audio.paused) PREV.audio.play().catch(()=>{}); else PREV.audio.pause(); };
 $('#miniClose').onclick=stopPreview;
@@ -750,6 +756,8 @@ const ACT={
   photo:()=>{ PHOTO_TARGET='profile'; $('#filePhoto').click(); }, 'edit-profile':()=>editProfile(), settings:()=>openSettings(), credits:()=>openCredits(),
   'share-profile':async()=>{ const p=S.profile; const t=`${p.name} (${p.handle}) performs on Lectern — ${S.recs.length} takes and counting.`; try{ if(navigator.share){ await navigator.share({title:p.name,text:t}); return; } await navigator.clipboard.writeText(t); toast('Copied to clipboard'); }catch(e){} },
   'first-rec':()=>{ const it=CAT.get('k-twinkle'); openDetail(it.id); },
+  'draft-open':el=>openDraft(el.dataset.id),
+  'draft-menu':el=>{ const d=draftById(el.dataset.id); if(!d) return; actionSheet(d.title,[{icon:'pencil',label:'Keep editing',run:()=>openDraft(d.id)},{icon:'trash',label:'Delete draft',danger:true,run:()=>confirmSheet('Delete this draft?','The take and your edits will be removed.','Delete',async()=>{ await deleteDraft(d.id); refresh(); toast('Draft deleted'); })}]); },
   'rec-open':el=>openRec(el.dataset.id), 'rec-share':el=>shareRec(S.recs.find(r=>r.id===el.dataset.id)),
   'rec-dl':async el=>{ const f=await recFile(S.recs.find(r=>r.id===el.dataset.id)); if(f){ downloadFile(f); toast('Downloading…'); } },
   'rec-remix':async el=>{ const r=S.recs.find(x=>x.id===el.dataset.id); const b=await idb.get(r.id,'rec'); if(b) openStudio(b,{title:r.title,itemId:r.itemId,kind:r.kind,dur:r.dur,captions:[],music:null,remix:true}); },
@@ -879,5 +887,5 @@ ACT['music-toggle']=async el=>{
   await loadTimedAudio(s);
   if(!player.hasAudio){ el.innerHTML=ic('eighth-notes','sm'); toast('Couldn’t play this audio'); return; }
   player.setVolume(1); player.setRate(1); player.seek(0);
-  MUSP.id=s.id; player.play(); musLoop();
+  MUSP.id=s.id; playerOwner({label:titleOf(s),sub:s.kind==='line'?'Reference clip':'Song editor',icon:'eighth-notes',open:()=>openEditor(s.id),here:()=>musBtns(s.id).length>0}); player.play(); musLoop();
 };

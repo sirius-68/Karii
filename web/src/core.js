@@ -1,5 +1,11 @@
 'use strict';
 /* ================= Utilities ================= */
+/* Native shell bridge (Capacitor); all false/no-op in a browser. */
+const CAP=window.Capacitor;
+const NATIVE=!!(CAP&&typeof CAP.isNativePlatform==='function'&&CAP.isNativePlatform());
+const PLATFORM=NATIVE?CAP.getPlatform():'web';
+const hasPlugin=n=>!!(CAP&&(Array.isArray(CAP.PluginHeaders)?CAP.PluginHeaders.some(h=>h.name===n):CAP.Plugins&&CAP.Plugins[n]));
+const nat=(plugin,method,opts={})=>hasPlugin(plugin)?CAP.nativePromise(plugin,method,opts):Promise.reject(new Error(plugin+' plugin is not installed'));
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const ic=(n,c='')=>`<svg class="i ${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -46,6 +52,9 @@ const idb=(()=>{
     async get(k,st='audio'){ const mk=st+':'+k; if(mem[mk]) return mem[mk]; const v=await run(st,'readonly',s=>s.get(k)); if(v) mem[mk]=v; return v||null; },
     async put(k,v,st='audio'){ mem[st+':'+k]=v; const r=await run(st,'readwrite',s=>s.put(v,k)); return r!==null; },
     async del(k,st='audio'){ delete mem[st+':'+k]; return run(st,'readwrite',s=>s.delete(k)); },
+    /* Write without keeping a copy in memory (large or temporary data such as live recording chunks). */
+    async putx(k,v,st='audio'){ const r=await run(st,'readwrite',s=>s.put(v,k)); return r!==null; },
+    async keys(prefix,st='audio'){ const r=await run(st,'readonly',s=>s.getAllKeys?s.getAllKeys():null); return (r||[]).filter(k=>typeof k==='string'&&k.startsWith(prefix)); },
     async has(k,st='audio'){ if(mem[st+':'+k]) return true; const v=await run(st,'readonly',s=>s.getKey(k)); return v!=null; }
   };
 })();

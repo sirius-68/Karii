@@ -2,11 +2,7 @@
    Runs only inside the native app. Talks to plugins through the bridge that
    Capacitor injects (Capacitor.nativePromise / addListener), so the web bundle
    needs no build step and still works unchanged in a browser. */
-const CAP=window.Capacitor;
-const NATIVE=!!(CAP&&typeof CAP.isNativePlatform==='function'&&CAP.isNativePlatform());
-const PLATFORM=NATIVE?CAP.getPlatform():'web';
-const hasPlugin=n=>!!(CAP&&(Array.isArray(CAP.PluginHeaders)?CAP.PluginHeaders.some(h=>h.name===n):CAP.Plugins&&CAP.Plugins[n]));
-const nat=(plugin,method,opts={})=>hasPlugin(plugin)?CAP.nativePromise(plugin,method,opts):Promise.reject(new Error(plugin+' plugin is not installed'));
+// CAP, NATIVE, PLATFORM, hasPlugin and nat are defined in core.js so every module can use them.
 
 if(NATIVE){
   document.documentElement.classList.add('native','plat-'+PLATFORM);
@@ -52,7 +48,7 @@ if(NATIVE){
   function goBack(){
     if(vis('#render')||vis('#onb')) return;
     if($('#sheets .sheet')){ closeSheets(); return; }
-    if(vis('#studio')){ closeStudio(); return; }
+    if(vis('#studio')){ studioLeave(); return; }
     if(vis('#sync')){ closeSync(); return; }
     if(!stage.hidden){
       if(state==='recording'||state==='paused'||state==='counting'){ toast('Stop the recording first'); return; }

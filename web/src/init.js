@@ -7,4 +7,5 @@ if(S.auth==null && store.get('lectern.onboarded2',false)){ S.auth={signedIn:true
 updateTabAvatar(); if(TAB==='explore') RENDER.explore();
 if(!store.get('lectern.onboarded2',false)) startOnboarding(); else SAVE.profile();
 hideSplash();
+if(store.get('lectern.onboarded2',false)) recoverSessions();
 window.addEventListener('pageshow',()=>updateTabAvatar());

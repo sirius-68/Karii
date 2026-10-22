@@ -1,6 +1,8 @@
 /* ================= Music sources for the stage ================= */
 const bed={audio:new Audio(),url:'',id:null};
 bed.audio.loop=true;
+bed.audio.addEventListener('play',()=>AUDIO.claim('bed',['tts']));
+AUDIO.register('bed',{label:()=>{ const x=bed.id&&CAT.get(bed.id); return x?x.title:'Music bed'; },sub:'Music bed',icon:'list-music',playing:()=>!bed.audio.paused,stop:()=>bed.audio.pause(),here:()=>!stage.hidden});
 async function loadBed(id){
   if(bed.id===id) return; bed.audio.pause(); if(bed.url){ URL.revokeObjectURL(bed.url); bed.url=''; } bed.audio.removeAttribute('src'); bed.id=null;
   if(!id) return; const x=CAT.get(id); if(!x) return;
@@ -63,9 +65,9 @@ function buildKara(){
   K.lines=lyricLines(bodyOf(A)); karaList.innerHTML=''; K.els=[]; K.words=[]; K.idx=-2;
   $('#karaEmpty').hidden=!!K.lines.length;
   const ft=fillTimes(A.times,K.lines.length); K.t=ft.t; K.e=(A.ends||[]).slice(0,K.lines.length);
-  K.wt=K.lines.map((l,i)=>{ const w=A.wt&&A.wt[i]; return w&&w.length===lineWords(l).length&&A.times&&A.times[i]!=null?w:null; });
+  K.wt=K.lines.map((l,i)=>{ const w=A.wt&&A.wt[i]; return w&&w.length===lineWords(l).length&&A.times&&A.times[i]!=null?cleanWordTimes(lineWords(l),w,K.t[i+1]):null; });
   K.lines.forEach((line,i)=>{
-    const el=document.createElement('div'); el.className='kl'; el.dataset.i=i;
+    const el=document.createElement('div'); el.className='kl'; el.dataset.i=i; el.dataset.text=line;
     const words=[]; let acc=0; const L=line.length||1;
     line.split(/(\s+)/).forEach(part=>{ if(!part) return;
       if(/^\s+$/.test(part)){ el.appendChild(document.createTextNode(part)); acc+=part.length; return; }
@@ -74,6 +76,25 @@ function buildKara(){
     karaList.appendChild(el); K.els.push(el); K.words.push(words);
   });
   return ft.synced;
+}
+/* Word timestamps from speech recognition can stretch a word across a pause or put two
+   words on top of each other, which made the highlight crawl and then jump. Keep them in
+   order and give each word a believable length for its syllables. */
+function cleanWordTimes(words,wt,nextLine){
+  const out=wt.map(x=>({s:+x.s,e:+x.e})); const n=out.length;
+  for(let k=0;k<n;k++){
+    if(!isFinite(out[k].s)) out[k].s=k?out[k-1].e:0;
+    if(k&&out[k].s<out[k-1].s+0.04) out[k].s=out[k-1].s+0.04;
+    if(!isFinite(out[k].e)||out[k].e<out[k].s+0.08) out[k].e=out[k].s+0.08;
+  }
+  for(let k=0;k<n;k++){
+    const syl=Math.max(1,syllables(words[k]||'')), last=k===n-1;
+    const cap=last?Math.min(2.6,0.35+syl*0.45):Math.min(1.4,0.2+syl*0.32);
+    let e=Math.min(out[k].e,out[k].s+cap);
+    if(!last) e=Math.min(e,out[k+1].s); else if(nextLine!=null) e=Math.min(e,nextLine-0.05);
+    out[k].e=Math.max(out[k].s+0.06,e);
+  }
+  return out;
 }
 function lineEnd(i){
   const st=K.t[i], nx=K.t[i+1];
@@ -90,11 +111,13 @@ function updateKara(){
   const le=idx>=0?lineEnd(idx):0;
   // after a line has finished and the next one is far away, move the highlight to the upcoming line
   let show=idx; if(idx>=0&&idx<n-1&&t>le+0.6&&K.t[idx+1]-t<2.2) show=idx+1;
-  if(show!==K.idx){ K.els.forEach((el,i)=>{ el.classList.toggle('now',i===show); el.classList.toggle('past',i<show); if(i!==show) K.words[i].forEach(w=>w.el.style.setProperty('--p',i<idx+(show===idx?0:1)?1:0)); }); K.idx=show; placeKara(show); }
+  if(show!==K.idx){ K.els.forEach((el,i)=>{ el.classList.toggle('now',i===show); el.classList.toggle('past',i<show); if(i!==show) K.words[i].forEach(w=>{ const q=i<idx+(show===idx?0:1)?1:0; if(w.p!==q){ w.p=q; w.el.style.setProperty('--p',q); } }); }); K.idx=show; placeKara(show); }
   if(show>=0&&show===idx){
     const W=K.wt[idx];
-    if(W) K.words[idx].forEach((w,k)=>{ const s=W[k].s, e=Math.max(s+0.05,W[k].e); w.el.style.setProperty('--p',clamp01((t-s)/(e-s)).toFixed(3)); });
-    else { const st=K.t[idx], f=clamp01((t-st)/(le-st)); K.words[idx].forEach(w=>w.el.style.setProperty('--p',clamp01((f-w.a)/Math.max(0.0001,w.b-w.a)).toFixed(3))); }
+    // Only touch words whose fill changed (each style write repaints the line).
+    const setP=(w,p)=>{ const q=Math.round(p*50)/50; if(w.p!==q){ w.p=q; w.el.style.setProperty('--p',q); } };
+    if(W) K.words[idx].forEach((w,k)=>{ const s=W[k].s, e=Math.max(s+0.05,W[k].e); setP(w,clamp01((t-s)/(e-s))); });
+    else { const st=K.t[idx], f=clamp01((t-st)/(le-st)); K.words[idx].forEach(w=>setP(w,clamp01((f-w.a)/Math.max(0.0001,w.b-w.a)))); }
   }
   // countdown dots before a late entry
   const next=idx+1;
@@ -124,7 +147,7 @@ function bedSync(){ if(songMode||!bed.id) return; const want=rehearsing||state==
 /* narrator (text to speech with word highlight) */
 function narratorStart(){
   if(!('speechSynthesis' in window)){ toast('Text-to-speech isn’t available in this browser'); return; }
-  speechSynthesis.cancel(); TTS.on=true; const ps=$$('#text p:not(.end)');
+  speechSynthesis.cancel(); AUDIO.claim('tts',['bed']); TTS.on=true; const ps=$$('#text p:not(.end)');
   let i=ps.findIndex(p=>p.offsetTop+p.offsetHeight>pos+scroller.clientHeight*S.settings.focus); if(i<0) i=0;
   speakPara(ps,i); bedSync(); syncUI();
 }
@@ -147,9 +170,13 @@ function syncPip(){
   if(Math.abs((pip.currentTime||0)-t)>0.25) try{ pip.currentTime=t; }catch(e){}
   if(pl&&pip.paused) pip.play().catch(()=>{}); else if(!pl&&!pip.paused) pip.pause();
 }
+const FW={n:0,slow:0};
 function tick(t){
   if(!lastT) lastT=t;
   const dt=Math.min(0.1,(t-lastT)/1000); lastT=t;
+  // If this phone can't keep up (long frames while playing), drop the costly visual effects
+  // so the highlight keeps pace with the music instead of stalling.
+  if(songMode&&player.playing()&&!stage.classList.contains('lite')){ FW.n++; if(dt>0.034) FW.slow++; if(FW.n>=90){ if(FW.slow>30){ stage.classList.add('lite'); } FW.n=FW.slow=0; } }
   if(songMode){
     if(!player.hasAudio&&player.vPlaying&&player.time()>=player.vDur) player.pause();
     updateKara(); syncPip();
@@ -179,8 +206,12 @@ async function startCamera(){
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return noCam(window.isSecureContext===false?'The camera needs a secure page (https or localhost). You can still rehearse.':'This browser can’t access the camera. You can still rehearse.');
   try{
     const v={facingMode:S.settings.facing,width:{ideal:1280},height:{ideal:720}};
-    try{ stream=await navigator.mediaDevices.getUserMedia({video:v,audio:{echoCancellation:true,noiseSuppression:!songMode,autoGainControl:true}}); }
-    catch(e1){ if(e1&&(e1.name==='NotFoundError'||e1.name==='OverconstrainedError')){ stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false}); toast('No microphone found. Takes will have no voice.'); } else throw e1; }
+    // Video only: opening the mic here would switch the phone into call-audio mode while
+    // you sing along (lower quality, Bluetooth drops to call profile, clock hiccups).
+    // The mic opens at the countdown instead.
+    try{ stream=await navigator.mediaDevices.getUserMedia({video:v,audio:false}); }
+    catch(e1){ if(e1&&e1.name==='OverconstrainedError') stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false}); else throw e1; }
+    stream.getVideoTracks().forEach(t=>t.addEventListener('ended',()=>{ if(state==='recording'){ pauseToggle(); toast('The camera was interrupted, so recording paused'); } }));
     if(stage.hidden){ stopCamera(); return; }
     cam.srcObject=stream; cam.play().catch(()=>{}); camOK=true; $('#camBtn').hidden=true; applyStyle(); syncUI();
   }catch(err){
@@ -196,43 +227,91 @@ function stopCamera(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stre
 async function lockScreen(){ try{ if(navigator.wakeLock) wake=await navigator.wakeLock.request('screen'); }catch(e){} }
 function unlockScreen(){ try{ if(wake){ wake.release(); wake=null; } }catch(e){} }
 
-function pickMime(){ const c=['video/mp4;codecs=avc1,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']; if(!window.MediaRecorder) return null; return c.find(t=>MediaRecorder.isTypeSupported(t))||''; }
+/* Raw takes record as WebM where possible: it streams out a chunk every second, so a take
+   survives a crash. Finished videos prefer MP4, which every gallery and chat app plays. */
+function pickMime(forExport){ if(!window.MediaRecorder) return null;
+  const mp4=['video/mp4;codecs=avc1,mp4a.40.2','video/mp4'], webm=['video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm'];
+  return (forExport?[...mp4,...webm]:[...webm,...mp4]).find(t=>MediaRecorder.isTypeSupported(t))||''; }
 function countdown(n){ return new Promise(res=>{ const el=$('#count'); if(n<=0){ res(); return; } el.hidden=false; let i=n; el.textContent=i; const iv=setInterval(()=>{ if(state!=='counting'){ clearInterval(iv); el.hidden=true; res(); return; } i--; if(i<=0){ clearInterval(iv); el.hidden=true; res(); } else el.textContent=i; },1000); }); }
+let mic=null, meter=null, meterRaf=0, recStartPerf=0, musicOffset=0, musicMarked=false;
 async function startRecording(){
   if(!camOK){ toast('The camera isn’t available, so you can only rehearse.'); return; }
-  const m=pickMime(); if(m===null){ toast('This browser can’t record video. Try Chrome, Edge or Safari.'); return; }
+  const m=pickMime(); if(m===null){ toast('This device can’t record video.'); return; }
+  if(!(await audioCheck())) return;
   if(TTS.on){ narratorStop(); toast('The narrator pauses while you record'); }
   if(songMode){ ac().resume(); player.pause(); player.seek(0); K.idx=-2; updateKara(); }
   else { bed.audio.pause(); try{ bed.audio.currentTime=0; }catch(e){} }
   rehearsing=false; state='counting'; pos=0; scroller.scrollTop=0; syncUI();
+  // Open the mic now, so any audio-route switch settles during the countdown, not mid-song.
+  try{ mic=await openMic(); }catch(e){ mic=null; }
+  if(state!=='counting'){ closeMic(); return; }
+  if(!mic) toast('Microphone unavailable, so this take will have no voice');
+  else { mic.getAudioTracks().forEach(t=>t.addEventListener('ended',()=>{ if(state==='recording'){ pauseToggle(); toast('The microphone was interrupted, so recording paused'); } })); startMeter(); }
+  showRouteLine(true);
   await countdown(S.settings.countdown);
-  if(state!=='counting') return;
-  mime=m; chunks=[];
-  try{ recorder=new MediaRecorder(stream,m?{mimeType:m,videoBitsPerSecond:6000000}:undefined); }
-  catch(e){ state='idle'; syncUI(); toast('Couldn’t start recording on this device.'); return; }
-  recorder.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+  showRouteLine(false);
+  if(state!=='counting'){ closeMic(); return; }
+  mime=m; chunks=[]; musicOffset=0; musicMarked=false;
+  const tracks=[...stream.getVideoTracks(),...(mic?mic.getAudioTracks():[])];
+  try{ recorder=new MediaRecorder(new MediaStream(tracks),m?{mimeType:m,videoBitsPerSecond:6000000,audioBitsPerSecond:160000}:undefined); }
+  catch(e){ try{ recorder=new MediaRecorder(new MediaStream(tracks)); }catch(e2){ state='idle'; closeMic(); syncUI(); toast('Couldn’t start recording on this device.'); return; } }
+  liveBegin({itemId:A.id,title:titleOf(A),kind:A.kind,mime:(m||'video/webm').split(';')[0],musicVol:songMode?1:S.settings.bedVol/100});
+  recorder.ondataavailable=e=>{ if(e.data&&e.data.size){ chunks.push(e.data); liveChunk(e.data); } };
   recorder.onstop=onRecorded;
+  recorder.onerror=()=>{ toast('Recording hit a problem. Saving what was captured.'); try{ if(recorder.state!=='inactive') recorder.stop(); }catch(e){} };
+  recStartPerf=performance.now();
+  // The video's timeline starts when start() is called; mark where the music lands on it.
+  recorder.onstart=()=>{ if(songMode) markMusicStart(); };
   recorder.start(1000);
   if(songMode) player.play();
   elapsed=0; tStart=performance.now(); state='recording'; lockScreen(); bedSync(); syncUI();
   clockT=setInterval(drawClock,250);
+  if(songMode) requestAnimationFrame(markMusicStart);
+}
+/* Where the music's first beat lands in the video: when playback was scheduled, plus the
+   output delay before it reaches the singer's ears. The editor lines the clean music up to it. */
+function markMusicStart(){
+  if(musicMarked||!player.on) return;
+  const c=ac(); const startPerf=performance.now()+(player.t0-c.currentTime)*1000;
+  musicOffset=Math.max(0,Math.min(2,(startPerf-recStartPerf)/1000+outLat()+extraLatency()-player.off));
+  musicMarked=true;
+  store.set('lectern.live',{...(store.get('lectern.live',{})||{}),musicOffset});
+}
+function closeMic(){ stopMeter(); if(mic){ mic.getTracks().forEach(t=>t.stop()); mic=null; } releaseMicRoute(); }
+function startMeter(){
+  stopMeter(); try{ meter=levelMeter(mic); }catch(e){ meter=null; return; }
+  const bar=$('#lvl'), fill=$('#lvlFill'); bar.hidden=false; let warned=0;
+  const loop=()=>{ if(!meter) return; meter.read(); const v=Math.max(0,Math.min(1,(meter.peak+54)/54)); fill.style.transform='scaleX('+v.toFixed(3)+')';
+    const hot=performance.now()-meter.hold<700; bar.classList.toggle('hot',hot);
+    if(meter.clips>25&&performance.now()-warned>12000&&state==='recording'){ warned=performance.now(); meter.clips=0; toast('Your voice is clipping. Move the phone a little further away.'); }
+    meterRaf=requestAnimationFrame(loop); };
+  meterRaf=requestAnimationFrame(loop);
+}
+function stopMeter(){ cancelAnimationFrame(meterRaf); if(meter){ meter.stop(); meter=null; } const bar=$('#lvl'); if(bar) bar.hidden=true; }
+function showRouteLine(on){
+  const el=$('#routeLine'); if(!el) return;
+  if(!on){ el.hidden=true; return; }
+  const micLbl=!mic?'No microphone':micPref()==='headset'&&ROUTE.output!=='speaker'?'Headset mic':'Phone mic';
+  el.innerHTML=`${ic(ROUTE_ICON[ROUTE.output]||'volume-2','xs')}${esc(ROUTE.name&&ROUTE.output!=='speaker'?ROUTE.name:ROUTE_LABEL[ROUTE.output])}<span>·</span>${ic('mic','xs')}${micLbl}`;
+  el.hidden=false;
 }
 function stopRecording(){
-  if(state==='counting'){ state='idle'; syncUI(); return; }
+  if(state==='counting'){ state='idle'; closeMic(); showRouteLine(false); syncUI(); return; }
   if(state==='recording') elapsed+=performance.now()-tStart;
   if(recorder&&recorder.state!=='inactive') recorder.stop();
   if(songMode) player.pause();
-  state='idle'; clearInterval(clockT); unlockScreen(); bedSync(); syncUI();
+  state='idle'; clearInterval(clockT); unlockScreen(); bedSync(); closeMic(); syncUI();
 }
 function pauseToggle(){
-  if(state==='recording'){ recorder.pause(); elapsed+=performance.now()-tStart; state='paused'; if(songMode) player.pause(); else bed.audio.pause(); }
-  else if(state==='paused'){ recorder.resume(); tStart=performance.now(); state='recording'; if(songMode) player.play(); else bedSync(); }
+  if(state==='recording'){ try{ recorder.pause(); }catch(e){} elapsed+=performance.now()-tStart; state='paused'; if(songMode) player.pause(); else bed.audio.pause(); }
+  else if(state==='paused'){ try{ recorder.resume(); }catch(e){} tStart=performance.now(); state='recording'; if(songMode) player.play(); else bedSync(); }
   else if(state==='counting') return;
   else if(songMode){ ac().resume(); player.playing()?player.pause():player.play(); }
   else if(narrMode){ TTS.on?narratorStop():narratorStart(); }
   else { rehearsing=!rehearsing; bedSync(); }
   syncUI();
 }
+document.addEventListener('visibilitychange',()=>{ if(document.hidden&&state==='recording'){ pauseToggle(); } });
 async function onRecorded(){
   const type=(recorder.mimeType||mime||'video/webm').split(';')[0];
   const blob=new Blob(chunks,{type});
@@ -243,7 +322,10 @@ async function onRecorded(){
     else if(bed.id){ music=await instBlob(CAT.get(bed.id)); mvol=S.settings.bedVol/100; }
   }catch(e){}
   S.stats.days=[...new Set([...S.stats.days,today()])].slice(-120); SAVE.stats();
-  openStudio(blob,{title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mvol});
+  const meta={title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mvol,musicOffset:songMode?musicOffset:0};
+  // Save the take as a draft before anything else, then drop the crash-recovery chunks.
+  const d=await createDraft(blob,meta,music); await liveEnd();
+  openStudio(blob,meta,{draftId:d.id});
 }
 function drawClock(){ const ms=elapsed+(state==='recording'?performance.now()-tStart:0); $('#clock').textContent=fmt(ms/1000); }
 function syncUI(){
@@ -257,6 +339,8 @@ function syncUI(){
   $('#dot').className='dot'+(state==='recording'?' live':state==='paused'?' paused':'');
   if(state==='idle') $('#clock').textContent=songMode?fmt(player.time()):(elapsed?fmt(elapsed/1000):'0:00');
   $('#backBtn').disabled=recActive; $('#rewLbl').textContent=songMode?'Restart':'Top';
+  $('#rewBtn').disabled=recActive; $('#pausedBanner').hidden=state!=='paused';
+  $('#playBtn').classList.toggle('recpause',state==='recording'||state==='paused');
 }
 function syncTune(){
   const st=S.settings;
@@ -299,6 +383,7 @@ $('#rec').onclick=()=>{ state==='idle'?startRecording():stopRecording(); };
 $('#playBtn').onclick=pauseToggle;
 $('#rewBtn').onclick=()=>{ if(songMode){ if(state==='idle'){ player.seek(0); K.idx=-2; updateKara(); syncUI(); } } else { if(TTS.on) narratorStop(); tweenTo(0); } };
 $('#camBtn').onclick=()=>startCamera();
+$('#routeBtn').onclick=async()=>{ await refreshRoute(); stageRouteUI(); audioSheet(false); };
 $('#flipBtn').onclick=async()=>{ S.settings.facing=S.settings.facing==='user'?'environment':'user'; SAVE.settings(); await startCamera(); };
 
 async function openStage(it){
@@ -306,18 +391,21 @@ async function openStage(it){
   if(!bodyOf(A).trim()){ toast(A.kind==='song'?'Add some lyrics first.':'Write something first.'); return; }
   songMode=isTimed(A); narrMode=!songMode&&voiceOf(A)==='narrator';
   stage.classList.toggle('song',songMode); stage.classList.toggle('catsong',songMode&&guideable(A)); stage.classList.toggle('linek',A.kind==='line'); stage.classList.toggle('narr',narrMode);
-  stage.hidden=false; document.body.style.overflow='hidden';
+  stage.hidden=false; document.body.style.overflow='hidden'; stage.classList.remove('lite'); FW.n=FW.slow=0;
   elapsed=0; rehearsing=false; state='idle'; setTune(false); wasPlaying=false; stageStart=performance.now(); TTS.on=false;
   ac().resume().catch(()=>{});
+  refreshRoute().then(stageRouteUI);
   syncTune(); syncUI();
   pip.hidden=true; if(pipUrl){ URL.revokeObjectURL(pipUrl); pipUrl=''; } pip.removeAttribute('src');
   if(songMode){
     karaList.innerHTML=''; $('#karaEmpty').hidden=true;
     await loadTimedAudio(A); player.pause(); player.seek(0);
+    playerOwner({label:titleOf(A),sub:'Stage',icon:'mic-vocal',here:()=>!stage.hidden});
     player.setVolume(A.kind==='line'&&voiceOf(A)==='dub'?0:1);
     const synced=buildKara();
     if(A.kind==='line'&&A.clip&&A.clip.type==='video'){ const b=await idb.get('clip:'+A.id); if(b){ pipUrl=URL.createObjectURL(b); pip.src=pipUrl; pip.muted=true; pip.hidden=false; } }
-    if(!synced&&K.lines.length) toast(player.hasAudio?'Not synced yet, so lines are spread evenly. Try Auto-sync in the editor.':'No music or timing yet. Lines advance every few seconds.');
+    if(typeof JOB!=='undefined'&&JOB.state==='run') toast('AI sync is still working in the background, so playback may stutter until it finishes.');
+    else if(!synced&&K.lines.length) toast(player.hasAudio?'Not synced yet, so lines are spread evenly. Try Auto-sync in the editor.':'No music or timing yet. Lines advance every few seconds.');
     else if(!player.hasAudio) toast('No audio attached. Press Play when your track starts.');
   } else {
     player.setVolume(1);
@@ -348,6 +436,7 @@ async function openSync(it){
   sy.item=it; sy.lines=lyricLines(it.body); sy.an=null;
   if(!sy.lines.length){ toast('Add some lines first'); return; }
   await loadTimedAudio(it); ac().resume();
+  playerOwner({label:titleOf(it),sub:'Sync lyrics',here:()=>!$('#sync').hidden});
   sy.marks=[]; player.pause(); player.seek(0); player.setRate(1); setSyRate(1);
   $('#syTitle').textContent=titleOf(it);
   $('#syNote').hidden=player.hasAudio; $('#sySpeed').hidden=!player.hasAudio;
@@ -483,6 +572,7 @@ async function openTimeline(it){
   const lines=lyricLines(it.body); if(!lines.length){ toast('Add lines first'); return; }
   await loadTimedAudio(it); ac().resume();
   if(!player.hasAudio){ toast('Attach audio to fine-tune against a waveform'); return; }
+  playerOwner({label:titleOf(it),sub:'Fine-tune timing',open:()=>openTimeline(it),here:()=>{ const e=STACK[STACK.length-1]; return !!(e&&e.name==='timeline'); }});
   const T=fillTimes(it.times,lines.length).t.slice(), W=lines.map((l,i)=>it.wt&&it.wt[i]?it.wt[i].map(x=>({...x})):null), E=(it.ends||[]).slice();
   const TL={T,W,E,sel:0,pps:70,an:null,raf:0};
   analyze(player.buf,player.key).then(a=>{ TL.an=a; }).catch(()=>{});
@@ -541,3 +631,67 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='r'||e.key==='R') $('#rewBtn').click();
   else if(e.key==='Escape') closeStage();
 });
+
+/* ================= Audio setup before recording ================= */
+function stageRouteUI(){
+  const b=$('#routeBtn'); if(!b) return;
+  b.innerHTML=ic(ROUTE_ICON[ROUTE.output]||'volume-2','sm');
+  b.setAttribute('aria-label','Audio: '+ROUTE_LABEL[ROUTE.output]);
+  b.classList.toggle('bt',ROUTE.output==='bluetooth');
+}
+function audioSheet(forRecord){
+  return new Promise(res=>{
+    let started=false;
+    const r=ROUTE.output, hp=r!=='speaker', lat=Math.round(extraLatency()*1000+outLat()*1000);
+    const hasHeadsetMic=ROUTE.inputs.some(i=>i.type==='bluetooth'||i.type==='headset')||r==='bluetooth'||r==='wired'||r==='usb';
+    const opt=(v,t,s)=>`<button class="aopt" data-mic="${v}" aria-pressed="${micPref()===v}"><span class="rd"></span><span><b>${t}</b><small>${s}</small></span></button>`;
+    sheet(`<div class="asheet">
+      <div class="aroute"><span class="ai">${ic(ROUTE_ICON[r]||'volume-2')}</span><div><small>Playing through</small><b>${esc(hp&&ROUTE.name?ROUTE.name:ROUTE_LABEL[r])}</b></div></div>
+      ${hp?`<div class="h3" style="margin:18px 0 8px">Record your voice with</div>
+        ${opt('phone','Phone microphone','Best quality. The music stays in your '+(r==='bluetooth'?'Bluetooth ':'')+'headphones and out of your take.')}
+        ${hasHeadsetMic?opt('headset','Headset microphone',r==='bluetooth'?'Uses the mic on your headphones. Bluetooth switches to call-quality sound for this.':'Uses the mic on your headphones.'):''}`
+      :`<div class="atip">${ic('headphones','sm')}<span><b>Headphones give the cleanest take.</b> On the speaker the music leaks into your mic, so Lectern turns on echo cancellation.</span></div>`}
+      <div class="alat"><span>${ic('timer','sm')}Delay compensation <b>${lat} ms</b></span><button class="btn sm" id="aLat">Adjust</button></div>
+      ${forRecord?`<button class="btn white block" id="aGo">${ic('circle','fill sm')}Start recording</button>`:`<button class="btn white block" id="aGo">Done</button>`}
+    </div>`,{onMount(el,close){
+      el.addEventListener('click',e=>{ const o=e.target.closest('[data-mic]'); if(!o) return; S.settings.micPref=o.dataset.mic; SAVE.settings(); $$('[data-mic]',el).forEach(x=>x.setAttribute('aria-pressed',String(x===o))); });
+      el.querySelector('#aLat').onclick=()=>{ close(); openLatencyCheck(); };
+      el.querySelector('#aGo').onclick=()=>{ started=true; S.settings.routeSeen={...(S.settings.routeSeen||{}),[r]:true}; SAVE.settings(); close(); };
+    },onClose(){ setTimeout(()=>res(started),0); }});
+  });
+}
+async function audioCheck(){
+  await refreshRoute(); stageRouteUI();
+  const seen=S.settings.routeSeen||{};
+  if(seen[ROUTE.output]) return true;
+  return audioSheet(true);
+}
+
+/* Sync check: clicks play on the audio clock while a dot flashes on screen. Slide until
+   they line up; the difference is this route's output delay. */
+function openLatencyCheck(){
+  const c=ac(); c.resume();
+  let raf=0, on=true, next=c.currentTime+0.3; const period=0.6, sched=[];
+  const r=ROUTE.output; let v=Math.round(routeLatency(r)*1000);
+  const click=t=>{ const o=c.createOscillator(), g=c.createGain(); o.frequency.value=1500; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.6,t+0.002); g.gain.exponentialRampToValueAtTime(0.0001,t+0.06); o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+0.08); };
+  sheet(`<div class="lat">
+    <h3>Sync check</h3><p class="sub" style="margin:4px 20px 18px">${esc(ROUTE_LABEL[r])}. Slide until the flash lands exactly on each click.</p>
+    <div class="lat-dot" id="latDot"></div>
+    <div class="mixrow" style="margin:20px 20px 4px"><span class="mute" style="min-width:56px">Earlier</span><input type="range" id="latR" min="-100" max="450" step="5" value="${v}" aria-label="Delay in milliseconds"><span class="mute">Later</span></div>
+    <div style="text-align:center;font-family:var(--mono);margin-bottom:14px" id="latV">${v} ms</div>
+    <div class="row-btns"><button class="btn" id="latReset">Reset</button><button class="btn white" id="latSave">Save</button></div></div>`,{onMount(el,close){
+      const dot=el.querySelector('#latDot'), rg=el.querySelector('#latR'), lv=el.querySelector('#latV');
+      rg.oninput=()=>{ v=+rg.value; lv.textContent=v+' ms'; };
+      el.querySelector('#latReset').onclick=()=>{ v=Math.round((ROUTE_DEFAULT_LAT[r]||0)*1000); rg.value=v; lv.textContent=v+' ms'; };
+      el.querySelector('#latSave').onclick=()=>{ setRouteLatency(v/1000,r); toast('Timing saved for '+ROUTE_LABEL[r].toLowerCase()); close(); };
+      const loop=()=>{ if(!on) return;
+        while(next<c.currentTime+0.25){ click(next); sched.push(next); next+=period; }
+        // context time -> wall time, then add the chosen delay
+        const ts=c.getOutputTimestamp?c.getOutputTimestamp():null;
+        const ctxNow=ts&&ts.contextTime>0?ts.contextTime+(performance.now()-ts.performanceTime)/1000:c.currentTime-outLat();
+        const heard=ctxNow-v/1000; let lit=false; for(const t of sched){ if(heard>=t&&heard<t+0.09){ lit=true; break; } }
+        while(sched.length&&sched[0]<heard-1) sched.shift();
+        dot.classList.toggle('on',lit); raf=requestAnimationFrame(loop); };
+      raf=requestAnimationFrame(loop);
+    },onClose(){ on=false; cancelAnimationFrame(raf); }});
+}

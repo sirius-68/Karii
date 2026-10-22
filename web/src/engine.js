@@ -18,6 +18,7 @@ let AC=null;
 function ac(){ if(!AC){ const C=window.AudioContext||window.webkitAudioContext; AC=new C({latencyHint:'interactive'}); } return AC; }
 const outLat=()=>AC?Math.min(0.5,(AC.outputLatency||0)+(AC.baseLatency||0)):0;
 const VISUAL_LEAD=0.016;
+let extraLatency=()=>0; // replaced by the audio route module (Bluetooth etc.)
 const BUFS=new Map();
 function cacheBuf(k,b){ BUFS.delete(k); BUFS.set(k,b); while(BUFS.size>4) BUFS.delete(BUFS.keys().next().value); }
 function decodeBlob(blob){
@@ -41,10 +42,21 @@ const player={
   unload(){ this.pause(); this.buf=null; this.hasAudio=false; this.key=null; this.off=0; this.vOff=0; this.vPlaying=false; this.rate=1; },
   duration(){ return this.hasAudio?this.buf.duration:this.vDur; },
   raw(){ if(!this.on) return this.off; return Math.min(this.buf.duration,this.off+Math.max(0,ac().currentTime-this.t0)*this.rate); },
+  /* Position the listener is hearing right now. Uses the audio hardware clock
+     (getOutputTimestamp maps context time to wall time and already includes the
+     device's output delay), adds any per-route delay the OS doesn't report
+     (Bluetooth), and never steps backwards by a few ms of jitter. */
+  _last:0,
   time(){
     if(!this.hasAudio) return this.vPlaying?Math.min(this.vDur,this.vOff+(performance.now()-this.vStart)/1000*this.rate):this.vOff;
     if(!this.on) return this.off;
-    return Math.max(0,Math.min(this.buf.duration,this.off+(ac().currentTime-this.t0-outLat())*this.rate+VISUAL_LEAD));
+    const c=ac(); let now=null, lat=0;
+    if(c.getOutputTimestamp){ try{ const ts=c.getOutputTimestamp(); if(ts&&ts.contextTime>0&&ts.performanceTime>0){ const ahead=(performance.now()-ts.performanceTime)/1000; if(ahead>=0&&ahead<0.5) now=ts.contextTime+ahead; } }catch(e){} }
+    if(now==null){ now=c.currentTime; lat=outLat(); }
+    let t=this.off+(now-this.t0-lat-extraLatency())*this.rate+VISUAL_LEAD;
+    t=Math.max(0,Math.min(this.buf.duration,t));
+    if(t<this._last&&this._last-t<0.12&&this.on) t=this._last;
+    this._last=t; return t;
   },
   playing(){ return this.hasAudio?this.on:this.vPlaying; },
   play(){
@@ -59,10 +71,11 @@ const player={
     s.onended=()=>{ if(this.src!==s) return; this.off=this.buf.duration; this.on=false; this.src=null; this.onend&&this.onend(); };
   },
   pause(){
+    this._last=0;
     if(!this.hasAudio){ if(this.vPlaying){ this.vOff=this.time(); this.vPlaying=false; } return; }
     if(!this.on) return; this.off=this.raw(); const s=this.src; this.src=null; this.on=false; try{ s.onended=null; s.stop(); }catch(e){}
   },
-  seek(t){ t=Math.max(0,Math.min(this.duration()||0,t));
+  seek(t){ t=Math.max(0,Math.min(this.duration()||0,t)); this._last=0;
     if(!this.hasAudio){ this.vOff=t; this.vStart=performance.now(); return; }
     const was=this.on; if(was) this.pause(); this.off=t; if(was) this.play(); },
   setRate(r){ if(!this.hasAudio){ if(this.vPlaying){ this.vOff=this.time(); this.vStart=performance.now(); } this.rate=r; return; } const was=this.on; if(was) this.pause(); this.rate=r; if(was) this.play(); },
