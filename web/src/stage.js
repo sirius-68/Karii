@@ -9,7 +9,7 @@ async function loadBed(id){
   try{ const b=await instBlob(x); bed.url=URL.createObjectURL(b); bed.audio.src=bed.url; bed.id=id; }catch(e){ toast('Couldn’t load that music bed. Are you online?'); S.settings.bed=null; SAVE.settings(); }
   bed.audio.volume=S.settings.bedVol/100;
 }
-function musicKey(it,guide){ if(it.kind==='line') return 'clip:'+it.id; if(it.cat) return 'cat:'+it.id+(guide?':g':''); const m=it.music||{}; return 'lib:'+it.id+':'+(m.type||'none')+':'+(m.id||m.name||'')+(m.type==='cat'&&guide?':g':''); }
+function musicKey(it,guide){ if(it.kind==='line') return 'clip:'+it.id; if(it.cat) return 'cat:'+it.id+(guide?':g':''); const m=it.music||{}; return 'lib:'+it.id+':'+(m.type||'none')+':'+(m.id||m.name||(m.type==='click'?m.bpm+'/'+(m.beats||4)+'/'+Math.ceil(m.dur||0):''))+(m.type==='cat'&&guide?':g':''); }
 const guideable=it=>it.kind==='song'&&(it.cat?it.layout.notes.length>0:(it.music&&it.music.type==='cat'&&CAT.get(it.music.id)&&CAT.get(it.music.id).layout.notes.length>0));
 const voiceOf=it=>it.kind!=='line'?'me':it.cat?(S.settings.lineVoice&&S.settings.lineVoice[it.id])||'me':(it.voice||'me');
 function setVoice(it,v){ if(it.cat){ S.settings.lineVoice=S.settings.lineVoice||{}; S.settings.lineVoice[it.id]=v; SAVE.settings(); } else { it.voice=v; SAVE.items(); } }

@@ -724,3 +724,42 @@ html:has(#stage:not([hidden])) #np,html:has(#studio:not([hidden])) #np,html:has(
 .th.draft{display:flex;align-items:center;justify-content:center;background:var(--s3) center/cover;color:var(--muted)}
 .draft-th{width:120px;aspect-ratio:3/4;margin:4px auto 14px;border-radius:14px;background:var(--s3) center/cover;display:flex;align-items:center;justify-content:center;color:var(--muted)}
 .btn.danger{color:var(--hot)}
+
+/* ================= Tempo (lyric pad) ================= */
+.tempo{padding:14px 14px 4px}
+.tp-main{display:flex;align-items:center;gap:10px}
+.tp-bpm{display:flex;flex-direction:column;align-items:center;min-width:64px}
+.tp-bpm b{font-size:2rem;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
+.tp-bpm small{color:var(--muted);font-size:.72rem;letter-spacing:.08em}
+.tap{margin-left:auto;min-width:118px;height:52px;border-radius:16px;background:var(--brand);color:#fff;font-weight:700;font-size:1rem;box-shadow:0 8px 24px -10px rgba(236,72,153,.7)}
+.tap.hit{animation:tapHit .18s ease-out}
+@keyframes tapHit{0%{transform:scale(.94)}100%{transform:none}}
+.tempo input[type=range]{width:100%;margin:14px 0 2px}
+.tp-src{margin:2px 0 6px;color:var(--muted);font-size:.82rem}
+.tempo .grow{padding-left:0;padding-right:0}
+
+/* ================= Take editor: effects & tracks ================= */
+.st-tabs{overflow-x:auto;scrollbar-width:none}.st-tabs::-webkit-scrollbar{display:none}
+.mixrow .ml{min-width:92px;font-size:.84rem;color:var(--muted)}
+.fxp{padding:10px 14px 6px}
+.fxp-h{display:flex;align-items:center;justify-content:space-between;margin:2px 0 6px}
+.fxp .mixrow{padding:0;margin:4px 0}
+.trk-pick{display:flex;gap:8px;overflow-x:auto;padding:2px 20px 10px;scrollbar-width:none}
+.trk-pick .chip{flex:none}
+.lanes{margin:0 20px;border-radius:14px;background:var(--s1);overflow:hidden;touch-action:pan-y}
+.lanes canvas{display:block}
+.trk-add{display:flex;gap:8px;padding:12px 20px 0;flex-wrap:wrap}
+.trk-add .btn.rec{background:var(--hot);color:#fff}
+.trk{padding:10px 14px 4px}
+.trk .mixrow{padding:0;margin:4px 0}
+.trk-h{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.trk-name{flex:1;min-width:0;background:none;border:0;border-bottom:1px solid var(--line-2);color:var(--ink);font:inherit;font-weight:600;font-size:1rem;padding:6px 0;outline:none}
+.trk-h .chip{min-height:30px;padding:4px 10px;font-size:.8rem}
+.nudge{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 4px}
+.nudge .ml{flex:1 1 100%;font-size:.84rem;color:var(--muted)}
+.nudge .ml b{color:var(--ink);font-family:var(--mono);font-weight:500}
+.nudge .btn{padding:6px 10px;min-height:32px}
+.fxp .mixrow,.trk .mixrow,.polish .mixrow{display:grid;grid-template-columns:96px minmax(0,1fr) 58px;align-items:center;gap:10px}
+.fxp .mixrow .ml,.trk .mixrow .ml,.polish .mixrow .ml{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fxp .mixrow input,.trk .mixrow input,.polish .mixrow input{width:100%;min-width:0}
+.fxp .mixrow output,.trk .mixrow output,.polish .mixrow output{text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums}

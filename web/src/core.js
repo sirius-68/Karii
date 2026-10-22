@@ -297,7 +297,23 @@ async function musicBlobFor(it,guide){
   if(m.type==='file') return idb.get(it.id);
   if(m.type==='inst'){ const inst=CAT.get(m.id); return inst?instBlob(inst):null; }
   if(m.type==='cat') return catSongBlob(m.id,guide);
+  if(m.type==='click') return clickTrackBlob(m);
   return null;
+}
+/* A soft click track for songs written without a beat: accented downbeat, gentle off-beats,
+   long enough for every line. Rendered once and cached. */
+async function clickTrackBlob(m){
+  const key='click:'+m.bpm+':'+(m.beats||4)+':'+Math.ceil(m.dur||60);
+  const hit=await idb.get(key); if(hit) return hit;
+  const sr=44100, dur=Math.max(4,m.dur||60), C=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+  const oc=new C(1,Math.ceil(sr*dur),sr), beat=60/m.bpm, bpb=m.beats||4;
+  for(let t=0,k=0;t<dur-0.05;t+=beat,k++){
+    const down=k%bpb===0, o=oc.createOscillator(), g=oc.createGain(), f=oc.createBiquadFilter();
+    o.type='triangle'; o.frequency.value=down?1320:880; f.type='bandpass'; f.frequency.value=down?1600:1100; f.Q.value=1.2;
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(down?0.5:0.22,t+0.003); g.gain.exponentialRampToValueAtTime(0.0001,t+0.07);
+    o.connect(f); f.connect(g); g.connect(oc.destination); o.start(t); o.stop(t+0.09);
+  }
+  const buf=await oc.startRendering(); const blob=wavFromBuffer(buf); idb.put(key,blob); return blob;
 }
 function musicName(it){
   if(it.cat) return 'Arrangement by Lectern';
@@ -305,6 +321,7 @@ function musicName(it){
   if(m.type==='file') return m.name||'Your audio file';
   if(m.type==='inst'){ const x=CAT.get(m.id); return x?x.title+' · '+x.sub:'Instrumental'; }
   if(m.type==='cat'){ const x=CAT.get(m.id); return x?x.title+' (arrangement)':'Arrangement'; }
+  if(m.type==='click') return 'Click track · '+m.bpm+' BPM';
   return '';
 }
 function probeDuration(blob){

@@ -182,7 +182,7 @@ async function rhymesFor(w,text){
 function openLyricPad(id,beatId){
   let s=id&&find(id);
   if(!s){ s={id:uid(),kind:'song',title:'',body:'',times:[],offset:0,updated:Date.now()}; if(beatId){ const b=CAT.get(beatId); s.music={type:'inst',id:beatId,dur:b&&b.dur}; } S.items.push(s); SAVE.items(); }
-  const LP={per:2,intro:1};
+  const LP={per:2,intro:1,taps:[],metro:null};
   push('lyricpad',el=>{
     const nm=musicName(s), b=s.music&&s.music.type==='inst'&&CAT.get(s.music.id);
     el.innerHTML=pbar('Lyric pad',`<button class="btn white sm" data-lp="sing">${ic('mic-vocal','sm')}Sing</button>`)+`
@@ -194,8 +194,16 @@ function openLyricPad(id,beatId){
         <textarea class="body-in song" id="lpBody" placeholder="Write one lyric line per row.&#10;Tip: keep lines in a section to similar syllable counts.">${esc(s.body)}</textarea>
         <div class="lp-info" id="lpInfo"></div>
         <div class="rhymes" id="lpRh"></div>
+        <div class="h3">Tempo</div>
+        <div class="grp tempo">
+          <div class="tp-main"><button class="circ sm" data-tp="-1" aria-label="Slower">${ic('minus','sm')}</button><div class="tp-bpm"><b id="lpBpm"></b><small>BPM</small></div><button class="circ sm" data-tp="1" aria-label="Faster">${ic('plus','sm')}</button><button class="tap" id="lpTap" aria-label="Tap tempo">Tap</button></div>
+          <input type="range" id="lpBpmR" min="50" max="200" step="1" aria-label="Tempo">
+          <p class="tp-src" id="lpTempoSrc"></p>
+          <div class="grow"><div class="lbl"><b>Beats per bar</b></div><div class="chips" id="lpBeats">${[3,4,6].map(v=>`<button class="chip" data-v="${v}" aria-pressed="${(s.beats||4)===v}">${v}</button>`).join('')}</div></div>
+          <div class="grow"><div class="lbl"><b>Metronome</b><small>Hear the tempo while you write</small></div><button class="toggle" role="switch" id="lpMetro" aria-checked="false" aria-label="Metronome"></button></div>
+        </div>
         <div class="h3">Place on the beat</div>
-        <div class="grp"><div class="grow"><div class="lbl"><b>Bars per line</b></div><div class="chips" id="lpPer">${[1,2,4].map(v=>`<button class="chip" data-v="${v}" aria-pressed="${LP.per===v}">${v}</button>`).join('')}</div></div>
+        <div class="grp"><div class="grow"><div class="lbl"><b>Bars per line</b><small>How long each line lasts</small></div><div class="chips" id="lpPer">${[0.5,1,2,4].map(v=>`<button class="chip" data-v="${v}" aria-pressed="${LP.per===v}">${v===0.5?'½':v}</button>`).join('')}</div></div>
           <div class="grow"><div class="lbl"><b>Intro bars</b></div><div class="chips" id="lpIntro">${[0,1,2,4].map(v=>`<button class="chip" data-v="${v}" aria-pressed="${LP.intro===v}">${v}</button>`).join('')}</div></div>
           <div class="grow"><div class="lbl"><b>Auto-place lines</b><small>Each line lands on a bar line, with word timing</small></div><button class="btn white sm" data-lp="place">${ic('magnet','xs')}Place</button></div></div>
         <div class="h3">Structure</div><div class="struct" id="lpStruct"></div>
@@ -217,6 +225,26 @@ function openLyricPad(id,beatId){
     el.querySelectorAll('[data-sec]').forEach(b=>b.onclick=()=>{ const p=B.selectionStart??B.value.length, before=B.value.slice(0,p), after=B.value.slice(p); const ins=(before&&!before.endsWith('\n')?'\n\n':before?'\n':'')+'['+b.dataset.sec+']\n'; B.value=before+ins+after; B.focus(); B.setSelectionRange(p+ins.length,p+ins.length); save(); caret(); });
     const chipSet=(sel,key)=>el.querySelector(sel).onclick=e=>{ const b=e.target.closest('[data-v]'); if(!b) return; LP[key]=+b.dataset.v; $$(sel+' .chip',el).forEach(x=>x.setAttribute('aria-pressed',String(x===b))); };
     chipSet('#lpPer','per'); chipSet('#lpIntro','intro');
+    // ---- tempo: manual, tap tempo, beats per bar, metronome
+    const inst=s.music&&s.music.type==='inst'&&CAT.get(s.music.id);
+    const bpmNow=()=>s.bpm||(s.music&&s.music.type==='click'&&s.music.bpm)||(inst&&inst.bpm)||96;
+    const showBpm=()=>{ const v=bpmNow(); el.querySelector('#lpBpm').textContent=v; el.querySelector('#lpBpmR').value=v;
+      el.querySelector('#lpTempoSrc').textContent=s.bpm?'Set by you'+(inst?' · overrides the beat’s tempo':''):inst&&inst.bpm?'From your beat':s.music&&s.music.type!=='click'?'Detected from your music when you place lines':'No beat? Lectern adds a click track so you can sing it in time.'; };
+    const setBpm=v=>{ s.bpm=Math.max(50,Math.min(200,Math.round(v))); s.updated=Date.now(); clearTimeout(edSaveT); edSaveT=setTimeout(SAVE.items,350); showBpm(); if(LP.metro) metroStart(); };
+    el.querySelectorAll('[data-tp]').forEach(b=>b.onclick=()=>setBpm(bpmNow()+(+b.dataset.tp)));
+    el.querySelector('#lpBpmR').oninput=e=>setBpm(+e.target.value);
+    el.querySelector('#lpTap').onclick=()=>{ const now=performance.now(); if(LP.taps.length&&now-LP.taps[LP.taps.length-1]>2000) LP.taps=[]; LP.taps.push(now); LP.taps=LP.taps.slice(-8);
+      tick1(LP.taps.length===1); const btn=el.querySelector('#lpTap'); btn.classList.remove('hit'); void btn.offsetWidth; btn.classList.add('hit');
+      if(LP.taps.length>=3){ const iv=LP.taps.slice(1).map((t,i)=>t-LP.taps[i]).sort((a,b)=>a-b); const med=iv[Math.floor(iv.length/2)]; setBpm(60000/med); btn.textContent='Tap · '+LP.taps.length; } else btn.textContent=LP.taps.length===1?'Keep tapping':'Tap'; };
+    el.querySelector('#lpBeats').onclick=e=>{ const b=e.target.closest('[data-v]'); if(!b) return; s.beats=+b.dataset.v; SAVE.items(); $$('#lpBeats .chip',el).forEach(x=>x.setAttribute('aria-pressed',String(x===b))); if(LP.metro) metroStart(); };
+    const tick1=(down)=>{ const c=ac(); c.resume(); const t=c.currentTime+0.005, o=c.createOscillator(), g=c.createGain(); o.frequency.value=down?1320:880; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.4,t+0.003); g.gain.exponentialRampToValueAtTime(0.0001,t+0.06); o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+0.08); };
+    const metroStop=()=>{ if(LP.metro){ clearInterval(LP.metro.iv); LP.metro=null; } const t=el.querySelector('#lpMetro'); if(t) t.setAttribute('aria-checked','false'); };
+    const metroStart=()=>{ metroStop(); AUDIO.claim('metro'); const c=ac(); c.resume(); const M={next:c.currentTime+0.1,k:0}; LP.metro=M;
+      M.iv=setInterval(()=>{ if(!el.isConnected){ metroStop(); return; } const beat=60/bpmNow(), bpb=s.beats||4; while(M.next<c.currentTime+0.15){ const down=M.k%bpb===0, o=c.createOscillator(), g=c.createGain(); o.frequency.value=down?1320:880; g.gain.setValueAtTime(0.0001,M.next); g.gain.exponentialRampToValueAtTime(down?0.45:0.2,M.next+0.003); g.gain.exponentialRampToValueAtTime(0.0001,M.next+0.06); o.connect(g); g.connect(c.destination); o.start(M.next); o.stop(M.next+0.08); M.next+=beat; M.k++; } },25);
+      el.querySelector('#lpMetro').setAttribute('aria-checked','true'); };
+    el.querySelector('#lpMetro').onclick=()=>{ LP.metro?metroStop():metroStart(); };
+    AUDIO.register('metro',{label:'Metronome',sub:()=>bpmNow()+' BPM',icon:'timer',playing:()=>!!LP.metro,stop:metroStop,here:()=>el.isConnected});
+    showBpm();
     el.querySelector('[data-lp="sing"]').onclick=()=>{ clearTimeout(edSaveT); SAVE.items(); if(!lyricLines(s.body).length){ toast('Write some lyrics first'); return; } startItem(s); };
     el.querySelector('[data-lp="place"]').onclick=()=>placeOnBeat(s,LP);
     struct(); if(!s.body) setTimeout(()=>B.focus(),420);
@@ -224,20 +252,27 @@ function openLyricPad(id,beatId){
 }
 async function placeOnBeat(s,LP){
   const lines=lyricLines(s.body); if(!lines.length){ toast('Write some lyrics first'); return; }
-  if(!s.music){ toast('Choose a beat first'); return; }
+  const bpb=s.beats||4;
+  // No beat: build a click track at the chosen tempo so the song can be sung in time.
+  if(!s.music||s.music.type==='click'){
+    const bpm=s.bpm||(s.music&&s.music.bpm)||96, bar=60*bpb/bpm, dur=0.05+(LP.intro+lines.length*LP.per+2)*bar;
+    s.music={type:'click',bpm,beats:bpb,dur:Math.ceil(dur)};
+  }
   const inst=s.music.type==='inst'&&CAT.get(s.music.id);
-  toast(inst&&inst.bpm?'Placing lines…':'Detecting the tempo…');
+  toast(s.bpm||s.music.type==='click'||(inst&&inst.bpm)?'Placing lines…':'Detecting the tempo…');
   await loadTimedAudio(s);
   let bar, t0, an=null, downs=null;
-  if(player.hasAudio){ try{ an=await analyze(player.buf,player.key); }catch(e){} }
-  if(inst&&inst.bpm){ bar=240/inst.bpm; t0=0.05+LP.intro*bar; }
-  else if(an&&an.downbeats.length>4){ downs=an.downbeats; bar=240/an.bpm; }
+  if(player.hasAudio&&s.music.type!=='click'){ try{ an=await analyze(player.buf,player.key); }catch(e){} }
+  const tempo=s.music.type==='click'?s.music.bpm:s.bpm;
+  if(tempo){ bar=60*bpb/tempo; const first=an&&an.downbeats.length?an.downbeats[0]:0.05; t0=first+LP.intro*bar; }
+  else if(inst&&inst.bpm){ bar=60*bpb/inst.bpm; t0=0.05+LP.intro*bar; }
+  else if(an&&an.downbeats.length>4){ downs=an.downbeats; bar=60*bpb/an.bpm; }
   else { bar=2.4; t0=LP.intro*bar; }
-  s.times=lines.map((_,i)=>{ if(downs){ const k=LP.intro+i*LP.per; return +(k<downs.length?downs[k]:downs[downs.length-1]+(k-downs.length+1)*bar).toFixed(3); } return +(t0+i*LP.per*bar).toFixed(3); });
+  s.times=lines.map((_,i)=>{ if(downs){ const k=LP.intro+i*LP.per, k0=Math.floor(k), fr=k-k0; const base=k0<downs.length?downs[k0]:downs[downs.length-1]+(k0-downs.length+1)*bar; return +(base+fr*bar).toFixed(3); } return +(t0+i*LP.per*bar).toFixed(3); });
   s.ends=s.times.map((t,i)=>+(Math.min((s.times[i+1]??t+LP.per*bar)-0.1,t+LP.per*bar*0.92)).toFixed(3));
   s.wt=lines.map((l,i)=>distributeWords(l,s.times[i],s.ends[i],an&&an.peaks));
   s.updated=Date.now(); SAVE.items();
-  actionSheet('Lines placed on the beat',[{icon:'mic-vocal',label:'Sing it now',run:()=>startItem(s)},{icon:'audio-waveform',label:'Fine-tune on the waveform',run:()=>openTimeline(s)},{icon:'check',label:'Keep writing',run(){}}],lines.length+' lines · '+(inst&&inst.bpm?inst.bpm:an?an.bpm:'~100')+' BPM · '+LP.per+' bar'+(LP.per>1?'s':'')+' per line');
+  actionSheet('Lines placed on the beat',[{icon:'mic-vocal',label:'Sing it now',run:()=>startItem(s)},{icon:'audio-waveform',label:'Fine-tune on the waveform',run:()=>openTimeline(s)},{icon:'check',label:'Keep writing',run(){}}],lines.length+' lines · '+(tempo||(inst&&inst.bpm)||(an?an.bpm:'~100'))+' BPM · '+(LP.per===0.5?'half a':LP.per)+' bar'+(LP.per>1?'s':'')+' per line');
 }
 
 /* ---------- Sound recorder ---------- */
