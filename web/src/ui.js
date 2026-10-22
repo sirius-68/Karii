@@ -98,7 +98,7 @@ RENDER.explore=function(){
       <button class="searchpill" data-act="tab" data-tab="search">${ic('search')}<span>Search</span></button>
       <button class="circ bellwrap" data-act="news" aria-label="What's new">${ic('bell')}${unread?'<i class="badge"></i>':''}</button>
     </div>
-    <div class="pad" style="margin-top:22px;color:var(--muted);font-size:.95rem">${greet}, ${esc(firstName())}</div>
+    <div class="pad" style="margin-top:22px;color:var(--muted);font-size:.95rem">${greet}${S.auth&&S.auth.signedIn?', '+esc(firstName()):''}</div>
     <button class="hero" data-act="open" data-id="${pick.id}" style="${coverCss({...pick,id:pick.id+':hero'},560)}">
       <div><small>${ic('sparkles','xs')} Tonight's pick</small><h3>${esc(pick.title)}</h3><p>${esc(pick.sub)} · ${fmt(pick.dur)} · Karaoke</p></div>
       <span class="go" aria-hidden="true">${ic('mic-vocal')}</span>
@@ -565,7 +565,7 @@ function openCredits(){ push('credits',el=>{ el.innerHTML=pbar('Credits & licenc
 const OB={i:0,ints:new Set(),name:'',pal:4,photo:null,timer:0,slide:0};
 function startOnboarding(){
   const o=$('#onb'); o.hidden=false; OB.i=0; OB.slide=0;
-  if(S.profile){ OB.name=S.profile.name||''; OB.pal=S.profile.pal??4; (S.profile.interests||[]).forEach(x=>OB.ints.add(x)); }
+  if(S.profile){ OB.name=S.profile.name&&S.profile.name!=='Performer'?S.profile.name:''; OB.email=(S.auth&&S.auth.email)||''; OB.pal=S.profile.pal??4; (S.profile.interests||[]).forEach(x=>OB.ints.add(x)); }
   const sc=k=>catList(k);
   const coll=[[sc('song')[0],'left:6%;top:4%;width:44%;height:40%;--r:-6deg'],[sc('poem')[3],'right:5%;top:0%;width:38%;height:30%;--r:5deg;animation-delay:-2s'],[sc('line')[0],'right:8%;top:34%;width:40%;height:38%;--r:-3deg;animation-delay:-4s'],[sc('song')[2],'left:12%;top:48%;width:32%;height:30%;--r:4deg;animation-delay:-1s'],[sc('inst')[0],'left:42%;top:72%;width:24%;height:22%;--r:-8deg;animation-delay:-3s']];
   o.innerHTML=`<div class="wrap">
@@ -593,9 +593,11 @@ function startOnboarding(){
         <div class="ob-foot"><button class="btn white block" data-ob="next" id="obIntNext" ${OB.ints.size?'':'disabled'}>Continue</button></div>
       </div>
       <div class="ob-step right" data-s="3">
-        <h1>What should we call you?</h1><p class="lead">This is how you’ll appear on your profile. You can change it any time.</p>
-        <div class="namefield"><button class="pav" id="obAv" aria-label="Add a photo"></button><input id="obName" maxlength="40" placeholder="Your name" autocomplete="given-name" value="${esc(OB.name)}"></div>
+        <h1>Create your account</h1><p class="lead">Your name is how you’ll appear on your profile. Your email lets you sign back in.</p>
+        <div class="namefield"><button class="pav" id="obAv" aria-label="Add a photo"></button><input id="obName" maxlength="40" placeholder="Your name" autocomplete="name" value="${esc(OB.name)}"></div>
         <div class="handle-prev" id="obHandle"></div>
+        <label class="obmail">${ic('mail','sm')}<input id="obEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="Email address" value="${esc(OB.email||'')}"></label>
+        <p class="auth-err" id="obErr" role="alert"></p>
         <div style="margin-top:24px"><div class="mute" style="font-size:.88rem;margin-bottom:10px">Pick a colour</div><div class="swatches" id="obSw">${PALETTES.slice(0,8).map((_,i)=>`<button class="sw" data-i="${i}" aria-pressed="${OB.pal===i}" aria-label="Colour ${i+1}"></button>`).join('')}</div></div>
         <div class="ob-foot"><button class="btn white block" data-ob="next" id="obNameNext">Continue</button></div>
       </div>
@@ -603,9 +605,9 @@ function startOnboarding(){
         <h1>Ready when you are</h1><p class="lead">To record, Lectern needs your camera and microphone. Here’s the deal:</p>
         <div class="permart"><span class="bub">${ic('camera')}</span><span class="bub">${ic('mic')}</span></div>
         <div class="perm">
-          <div><span class="oi">${ic('shield-check')}</span><div><b>Stays on your device</b><span>Takes are saved in this browser. Nothing is uploaded.</span></div></div>
+          <div><span class="oi">${ic('shield-check')}</span><div><b>Stays on your device</b><span>Takes are saved on this device. Nothing is uploaded.</span></div></div>
           <div><span class="oi">${ic('video')}</span><div><b>Only when you press record</b><span>The preview is just for you until you start a take.</span></div></div>
-          <div><span class="oi">${ic('settings')}</span><div><b>Change it any time</b><span>You can turn access off in your browser’s site settings.</span></div></div>
+          <div><span class="oi">${ic('settings')}</span><div><b>Change it any time</b><span>You can turn access off in your settings whenever you like.</span></div></div>
         </div>
         <div class="ob-foot"><button class="btn white block" data-ob="perm">${ic('camera','sm')}Allow camera &amp; mic</button><button class="link" data-ob="next">Not now</button></div>
       </div>
@@ -625,8 +627,8 @@ function bindOnb(){
   o.addEventListener('click',e=>{
     const b=e.target.closest('[data-ob]'); if(!b) return;
     const a=b.dataset.ob;
-    if(a==='next') obGo(OB.i+1);
-    else if(a==='quick'){ OB.ints=new Set(['song','poem','line']); finishOnb(true); }
+    if(a==='next'){ if(OB.i===3&&!obAccountOk()) return; obGo(OB.i+1); }
+    else if(a==='quick'){ OB.ints=new Set(['song','poem','line']); OB.guest=true; finishOnb(true); }
     else if(a==='slide'){ if(OB.slide<2) obSlide(OB.slide+1); else obGo(2); }
     else if(a==='perm'){ askPerms().then(()=>obGo(5)); }
     else if(a==='finish') finishOnb();
@@ -635,7 +637,8 @@ function bindOnb(){
   $('#obSkip').onclick=()=>{ if(OB.i===1) obGo(2); else if(OB.i===2){ if(!OB.ints.size) ['song','poem','line'].forEach(k=>OB.ints.add(k)); obGo(3); } else if(OB.i===4) obGo(5); else obGo(OB.i+1); };
   $('#obInts').addEventListener('click',e=>{ const t=e.target.closest('.itile'); if(!t) return; const k=t.dataset.k; if(OB.ints.has(k)) OB.ints.delete(k); else OB.ints.add(k); t.setAttribute('aria-pressed',String(OB.ints.has(k))); $('#obIntNext').disabled=!OB.ints.size; if(navigator.vibrate) try{navigator.vibrate(8);}catch(_){} });
   const nm=$('#obName'); const upd=()=>{ OB.name=nm.value.trim(); $('#obHandle').textContent=OB.name?obHandle()+' · you can change this later':'Your handle will be created from your name'; $('#obAv').style.backgroundImage=`url('${obAvatar()}')`; $$('#obSw .sw').forEach(s=>s.style.backgroundImage=`url('${cover({id:'av:'+s.dataset.i+':'+(OB.name||''),kind:'av',pal:+s.dataset.i},96)}')`); };
-  nm.addEventListener('input',upd); nm.addEventListener('keydown',e=>{ if(e.key==='Enter') obGo(4); }); upd();
+  nm.addEventListener('input',()=>{ upd(); $('#obErr').textContent=''; }); nm.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#obEmail').focus(); } }); upd();
+  const em=$('#obEmail'); em.addEventListener('input',()=>{ OB.email=em.value.trim(); $('#obErr').textContent=''; }); em.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); if(obAccountOk()) obGo(4); } });
   $('#obSw').onclick=e=>{ const s=e.target.closest('.sw'); if(!s) return; OB.pal=+s.dataset.i; $$('#obSw .sw').forEach(x=>x.setAttribute('aria-pressed',String(x===s))); upd(); };
   $('#obAv').onclick=()=>{ PHOTO_TARGET='onb'; $('#filePhoto').click(); };
   // carousel swipe
@@ -643,6 +646,13 @@ function bindOnb(){
   car.addEventListener('pointerdown',e=>{ sx=e.clientX; });
   car.addEventListener('pointerup',e=>{ if(sx==null) return; const dx=e.clientX-sx; sx=null; if(Math.abs(dx)>40) obSlide(Math.max(0,Math.min(2,OB.slide+(dx<0?1:-1)))); });
   o.addEventListener('keydown',e=>{ if(e.key==='Escape') finishOnb(true); });
+}
+function obAccountOk(){
+  OB.name=$('#obName').value.trim(); OB.email=$('#obEmail').value.trim().toLowerCase();
+  const err=$('#obErr');
+  if(!OB.name){ err.textContent='Add your name to continue.'; $('#obName').focus(); return false; }
+  if(!validEmail(OB.email)){ err.textContent='Enter a valid email address.'; $('#obEmail').focus(); return false; }
+  err.textContent=''; return true;
 }
 function obSlide(n){ OB.slide=n; $('#obTrack').style.transform=`translateX(${-n*100}%)`; $$('#obDots i').forEach((d,i)=>d.classList.toggle('on',i===n)); }
 function obGo(n,instant){
@@ -676,11 +686,14 @@ function finishOnb(quick){
   const prev=S.profile||{};
   S.profile={...prev,name,handle:prev.handle&&prev.name===name?prev.handle:(OB.name?obHandle():'@performer'+(hash(String(Date.now()))%9000+1000)),pal:OB.pal,photo:OB.photo||prev.photo||null,bio:prev.bio||'',interests:[...OB.ints].length?[...OB.ints]:['song','poem','line'],created:prev.created||Date.now()};
   SAVE.profile(); store.set('lectern.onboarded2',true);
+  if(OB.guest){ OB.guest=false; if(!(S.auth&&S.auth.signedIn)){ S.auth={...(S.auth||{}),signedIn:false}; SAVE.auth(); } }
+  else if(OB.email){ S.auth={signedIn:true,name,email:OB.email,provider:'device',since:(S.auth&&S.auth.email===OB.email&&S.auth.since)||Date.now()}; SAVE.auth(); }
   const o=$('#onb'); o.style.transition='opacity .35s'; o.style.opacity='0';
   setTimeout(()=>{ o.hidden=true; o.style.opacity=''; o.innerHTML=''; },360);
   updateTabAvatar(); switchTab('explore');
   if(OB.open){ const id=OB.open; OB.open=null; setTimeout(()=>openDetail(id),200); }
   else if(!quick) setTimeout(()=>toast('Welcome to Lectern'),400);
+  else setTimeout(()=>toast('Look around. Sign in when you’re ready to perform.'),500);
 }
 
 /* ================= Preview player (instrumentals) ================= */
@@ -757,11 +770,13 @@ const ACT={
   'set-cd':el=>{ S.settings.countdown=+el.dataset.v; SAVE.settings(); refresh(); },
   'clear-cache':async()=>{ for(const s of catList('song')){ await idb.del('cat:'+s.id); await idb.del('cat:'+s.id+':g'); } player.unload(); BUFS.clear(); toast('Cleared. Arrangements rebuild next time.'); },
   'replay-onb':()=>{ closeAllPages(); startOnboarding(); },
-  'reset-all':()=>confirmSheet('Erase everything?','Removes your library, recordings, likes, profile and downloads from this browser.','Erase everything',async()=>{ try{ localStorage.clear(); indexedDB.deleteDatabase('lectern'); }catch(e){} location.reload(); })
+  'reset-all':()=>confirmSheet('Erase everything?','Removes your account, library, recordings, likes, profile and downloads from this device.','Erase everything',async()=>{ try{ localStorage.clear(); indexedDB.deleteDatabase('lectern'); }catch(e){} location.reload(); })
 };
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]'); if(!el || el.closest('#onb')) return;
-  const f=ACT[el.dataset.act]; if(f){ e.preventDefault(); f(el,e); }
+  const f=ACT[el.dataset.act]; if(!f) return; e.preventDefault();
+  if(gate(el.dataset.act,el)) return;
+  f(el,e);
 });
 $$('#tabbar [data-tab]').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 document.addEventListener('keydown',e=>{

@@ -609,3 +609,57 @@ button.hero{color:#fff;font:inherit}
 .circ.mt.on{background:#fff;color:#000}
 .spin{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;animation:spn .8s linear infinite}
 @keyframes spn{to{transform:rotate(360deg)}}
+
+/* ================= Launch splash ================= */
+#splash{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;transition:opacity .45s var(--ease),transform .45s var(--ease)}
+#splash.out{opacity:0;transform:scale(1.04);pointer-events:none}
+.sp-mark{width:104px;height:104px;border-radius:30px;background:var(--brand);display:flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 18px 60px -12px rgba(236,72,153,.55),inset 0 1px 0 rgba(255,255,255,.25);animation:spPop .7s var(--ease) both}
+.sp-mark i{width:7px;border-radius:4px;background:#fff;height:18px;animation:spBar 1s ease-in-out infinite alternate}
+.sp-mark i:nth-child(1){height:14px;animation-delay:-.2s}.sp-mark i:nth-child(2){height:34px;animation-delay:-.6s}.sp-mark i:nth-child(3){height:52px;animation-delay:-.1s}
+.sp-mark i:nth-child(4){height:28px;animation-delay:-.8s}.sp-mark i:nth-child(5){height:44px;animation-delay:-.4s}.sp-mark i:nth-child(6){height:14px;animation-delay:-.7s}
+.sp-name{margin-top:26px;font-size:2rem;font-weight:700;letter-spacing:-.04em;animation:spUp .6s .25s var(--ease) both}
+.sp-tag{margin-top:6px;color:var(--muted);font-size:.95rem;letter-spacing:.02em;animation:spUp .6s .4s var(--ease) both}
+@keyframes spPop{from{opacity:0;transform:scale(.72)}to{opacity:1;transform:none}}
+@keyframes spUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes spBar{from{transform:scaleY(.45)}to{transform:scaleY(1)}}
+@media (prefers-reduced-motion:reduce){.sp-mark,.sp-mark i,.sp-name,.sp-tag{animation:none}}
+
+/* ================= Scroll containment =================
+   Full-screen layers own their scrolling: the page underneath must not scroll or
+   rubber-band while one is open (that was the stray scrollbar on the welcome screen). */
+html:has(#splash),html:has(#onb:not([hidden])),html:has(#stage:not([hidden])),html:has(#studio:not([hidden])),html:has(#sync:not([hidden])),html:has(#render:not([hidden])),html:has(#pages .page),html:has(#sheets .sheet){overflow:hidden}
+html:has(#splash) body,html:has(#onb:not([hidden])) body,html:has(#stage:not([hidden])) body,html:has(#studio:not([hidden])) body,html:has(#sync:not([hidden])) body,html:has(#pages .page) body,html:has(#sheets .sheet) body{overflow:hidden}
+.page,.sheet,.ob-step,#onb{overscroll-behavior:contain}
+html,body{overscroll-behavior:none}
+.ob-step{scrollbar-width:none}.ob-step::-webkit-scrollbar{display:none}
+
+/* ================= Accounts & guest mode ================= */
+.auth{padding:6px 0 4px;text-align:center}
+.auth-mark{width:60px;height:60px;margin:10px auto 14px;border-radius:20px;background:var(--brand);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 12px 36px -10px rgba(236,72,153,.6)}
+.auth h3{margin:0 20px;font-size:1.4rem;letter-spacing:-.025em}
+.auth>p.mute{margin:8px 28px 20px;line-height:1.45}
+.auth .field{text-align:left}
+.auth .btn.block{width:calc(100% - 40px);margin:6px 20px 0}
+.auth .link.block{display:block;width:calc(100% - 40px);margin:4px 20px 0;padding:12px;color:var(--muted);font-weight:500}
+.auth-err{min-height:1.2em;margin:-4px 22px 6px;color:var(--hot);font-size:.88rem;text-align:left}
+.auth-note{display:flex;align-items:center;justify-content:center;gap:6px;margin:8px 20px 0;color:var(--faint);font-size:.8rem}
+.obmail{display:flex;align-items:center;gap:10px;margin-top:22px;background:var(--s2);border-radius:16px;padding:0 16px;color:var(--muted)}
+.obmail input{flex:1;min-width:0;background:none;border:0;outline:none;color:#fff;font:inherit;font-size:1.05rem;padding:16px 0}
+#onb .auth-err{margin:10px 2px 0;min-height:1.2em}
+.gate{padding:28px 24px calc(var(--tabh) + var(--sab) + 30px);text-align:center;max-width:420px;margin:0 auto}
+.gate-art{position:relative;height:190px;margin:8px auto 26px;width:260px}
+.gate-art span{position:absolute;width:120px;height:150px;border-radius:22px;background-size:cover;box-shadow:0 16px 40px -14px rgba(0,0,0,.7)}
+.gate-art span:nth-child(1){left:0;top:24px;transform:rotate(-9deg)}
+.gate-art span:nth-child(2){left:70px;top:0;z-index:1}
+.gate-art span:nth-child(3){right:0;top:24px;transform:rotate(9deg)}
+.gate-art i{position:absolute;z-index:2;left:50%;bottom:-6px;transform:translateX(-50%);width:58px;height:58px;border-radius:18px;background:var(--brand);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 0 0 6px var(--bg)}
+.gate h1{margin:0;font-size:1.75rem;letter-spacing:-.035em;line-height:1.12}
+.gate p{margin:10px 0 24px;color:var(--muted);line-height:1.5}
+.gate .btn.block{width:100%}
+.gate .link.block{display:block;width:100%;padding:14px;color:var(--muted);font-weight:500}
+.guestbar{display:flex;align-items:center;gap:12px;width:calc(100% - 40px);margin:6px 20px 4px;padding:12px 12px 12px 14px;border-radius:18px;background:linear-gradient(120deg,rgba(139,92,246,.18),rgba(236,72,153,.14) 60%,rgba(251,146,60,.12));border:1px solid var(--line-2);text-align:left;color:var(--ink)}
+.guestbar .gi{width:36px;height:36px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;flex:none}
+.guestbar .gt{flex:1;min-width:0;display:flex;flex-direction:column}
+.guestbar .gt b{font-size:.95rem}.guestbar .gt span{color:var(--muted);font-size:.84rem}
+.guestbar .gb{flex:none;background:#fff;color:#000;font-weight:600;font-size:.88rem;padding:8px 14px;border-radius:999px}
+#tabbar .av.guest{display:flex;align-items:center;justify-content:center;background:var(--s3);color:var(--ink-2)}

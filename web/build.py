@@ -10,7 +10,7 @@ OUT = os.environ.get('LECTERN_OUT') or os.path.join(ROOT, 'dist', 'lectern.html'
 read = lambda p: open(os.path.join(SRC, p), encoding='utf-8').read()
 css = read('styles.css')
 body = read('body.html')
-js_parts = ['data.js', 'engine.js', 'core.js', 'ui.js', 'stage.js', 'studio.js', 'creator.js', 'init.js', 'native.js']
+js_parts = ['data.js', 'engine.js', 'core.js', 'ui.js', 'stage.js', 'studio.js', 'creator.js', 'auth.js', 'init.js', 'native.js']
 js = '\n'.join(read(p) for p in js_parts)
 
 # collect icon names

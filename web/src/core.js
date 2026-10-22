@@ -65,7 +65,8 @@ const S={
   newsSeen: store.get('lectern.newsSeen',0),
   pdb: store.get('lectern.pdbcache',[]),
   beats: store.get('lectern.beats',[]),
-  sounds: store.get('lectern.sounds',[])
+  sounds: store.get('lectern.sounds',[]),
+  auth: store.get('lectern.auth',null)
 };
 if(!Array.isArray(S.items)) S.items=[];
 S.items=S.items.filter(s=>!(s.demo && s.title==='Lights Up (demo)'));
@@ -76,7 +77,8 @@ const SAVE={
   recents:()=>store.set('lectern.recents',S.recents), plays:()=>store.set('lectern.plays',S.plays),
   stats:()=>store.set('lectern.stats',S.stats), recs:()=>store.set('lectern.recs',S.recs),
   settings:()=>store.set('lectern.settings',S.settings), pdb:()=>store.set('lectern.pdbcache',S.pdb.slice(-80)),
-  beats:()=>store.set('lectern.beats',S.beats), sounds:()=>store.set('lectern.sounds',S.sounds)
+  beats:()=>store.set('lectern.beats',S.beats), sounds:()=>store.set('lectern.sounds',S.sounds),
+  auth:()=>store.set('lectern.auth',S.auth)
 };
 SAVE.items();
 const firstName=()=>((S.profile&&S.profile.name)||'friend').trim().split(/\s+/)[0]||'friend';
@@ -323,4 +325,13 @@ async function pdbAuthor(a){
 async function pdbPoem(author,title){
   const j=await pdbJSON('/author,title/'+encodeURIComponent(author)+';'+encodeURIComponent(title)+':abs');
   const p=j[0]; if(!p) throw new Error('Not found'); return addPdb(p.author,p.title,p.lines);
+}
+
+/* ================= Launch splash ================= */
+const SPLASH_MIN=1300; // ms on screen, long enough for the logo animation to land
+function hideSplash(){
+  const sp=document.getElementById('splash'); if(!sp) return;
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const wait=Math.max(0,(reduce?500:SPLASH_MIN)-performance.now());
+  setTimeout(()=>{ sp.classList.add('out'); setTimeout(()=>sp.remove(),520); },wait);
 }
