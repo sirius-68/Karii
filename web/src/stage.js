@@ -233,7 +233,7 @@ function pickMime(forExport){ if(!window.MediaRecorder) return null;
   const mp4=['video/mp4;codecs=avc1,mp4a.40.2','video/mp4'], webm=['video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm'];
   return (forExport?[...mp4,...webm]:[...webm,...mp4]).find(t=>MediaRecorder.isTypeSupported(t))||''; }
 function countdown(n){ return new Promise(res=>{ const el=$('#count'); if(n<=0){ res(); return; } el.hidden=false; let i=n; el.textContent=i; const iv=setInterval(()=>{ if(state!=='counting'){ clearInterval(iv); el.hidden=true; res(); return; } i--; if(i<=0){ clearInterval(iv); el.hidden=true; res(); } else el.textContent=i; },1000); }); }
-let mic=null, meter=null, meterRaf=0, recStartPerf=0, musicOffset=0, musicMarked=false;
+let recMixed=false, mic=null, meter=null, meterRaf=0, recStartPerf=0, musicOffset=0, musicMarked=false, stemRec=null, stemChunks=[], stemMime='', recDelay=0;
 async function startRecording(){
   if(!camOK){ toast('The camera isn’t available, so you can only rehearse.'); return; }
   const m=pickMime(); if(m===null){ toast('This device can’t record video.'); return; }
@@ -242,28 +242,42 @@ async function startRecording(){
   if(songMode){ ac().resume(); player.pause(); player.seek(0); K.idx=-2; updateKara(); }
   else { bed.audio.pause(); try{ bed.audio.currentTime=0; }catch(e){} }
   rehearsing=false; state='counting'; pos=0; scroller.scrollTop=0; syncUI();
-  // Open the mic now, so any audio-route switch settles during the countdown, not mid-song.
+  // While the countdown runs: open the mic (so any audio-route switch settles before the
+  // music starts) and, with the guide melody on, prepare the clean arrangement for the take.
+  const prepMirror=(async()=>{
+  // With the guide melody on, the singer hears it but the take gets the clean arrangement.
+    REC.mirrorBuf=null;
+    if(songMode&&guideable(A)&&S.settings.guide){ try{ const k=musicKey(A,false); let b=BUFS.get(k); if(!b){ const blob=await musicBlobFor(A,false); b=await decodeBlob(blob); cacheBuf(k,b); } REC.mirrorBuf=b; }catch(e){ REC.mirrorBuf=null; } }
+  })();
   try{ mic=await openMic(); }catch(e){ mic=null; }
   if(state!=='counting'){ closeMic(); return; }
   if(!mic) toast('Microphone unavailable, so this take will have no voice');
   else { mic.getAudioTracks().forEach(t=>t.addEventListener('ended',()=>{ if(state==='recording'){ pauseToggle(); toast('The microphone was interrupted, so recording paused'); } })); startMeter(); }
   showRouteLine(true);
-  await countdown(S.settings.countdown);
+  await Promise.all([countdown(S.settings.countdown),prepMirror]);
   showRouteLine(false);
   if(state!=='counting'){ closeMic(); return; }
-  mime=m; chunks=[]; musicOffset=0; musicMarked=false;
-  const tracks=[...stream.getVideoTracks(),...(mic?mic.getAudioTracks():[])];
-  try{ recorder=new MediaRecorder(new MediaStream(tracks),m?{mimeType:m,videoBitsPerSecond:6000000,audioBitsPerSecond:160000}:undefined); }
+  mime=m; chunks=[]; stemChunks=[]; musicOffset=0; musicMarked=false;
+  // Mix voice and in-app music inside the app (see rec.js); keep a voice-only stem for the editor.
+  const hasMusic=songMode?(player.hasAudio&&!(A.kind==='line'&&voiceOf(A)==='dub')):!!bed.id;
+  let g=null; try{ if(mic||hasMusic) g=recStart(mic); }catch(e){ g=null; }
+  recDelay=g?g.delay.delayTime.value:0; recMixed=!!g;
+  const tracks=[...stream.getVideoTracks(),...(g?g.dest.stream.getAudioTracks():mic?mic.getAudioTracks():[])];
+  stemRec=null; stemMime='';
+  if(g&&mic){ stemMime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(x=>MediaRecorder.isTypeSupported(x))||'';
+    try{ stemRec=new MediaRecorder(g.stemDest.stream,stemMime?{mimeType:stemMime,audioBitsPerSecond:160000}:undefined); stemRec.ondataavailable=e=>{ if(e.data&&e.data.size) stemChunks.push(e.data); }; }catch(e){ stemRec=null; } }
+  try{ recorder=new MediaRecorder(new MediaStream(tracks),m?{mimeType:m,videoBitsPerSecond:6000000,audioBitsPerSecond:192000}:undefined); }
   catch(e){ try{ recorder=new MediaRecorder(new MediaStream(tracks)); }catch(e2){ state='idle'; closeMic(); syncUI(); toast('Couldn’t start recording on this device.'); return; } }
-  liveBegin({itemId:A.id,title:titleOf(A),kind:A.kind,mime:(m||'video/webm').split(';')[0],musicVol:songMode?1:S.settings.bedVol/100});
+  liveBegin({itemId:A.id,title:titleOf(A),kind:A.kind,mime:(m||'video/webm').split(';')[0],musicVol:songMode?1:S.settings.bedVol/100,mixed:!!g});
   recorder.ondataavailable=e=>{ if(e.data&&e.data.size){ chunks.push(e.data); liveChunk(e.data); } };
   recorder.onstop=onRecorded;
   recorder.onerror=()=>{ toast('Recording hit a problem. Saving what was captured.'); try{ if(recorder.state!=='inactive') recorder.stop(); }catch(e){} };
   recStartPerf=performance.now();
   // The video's timeline starts when start() is called; mark where the music lands on it.
   recorder.onstart=()=>{ if(songMode) markMusicStart(); };
-  recorder.start(1000);
-  if(songMode) player.play();
+  recorder.start(1000); if(stemRec) try{ stemRec.start(1000); }catch(e){ stemRec=null; }
+  if(songMode){ player.play(); if(REC.attachPlayer) REC.attachPlayer(); }
+  else if(!songMode) musicOffset=recDelay;
   elapsed=0; tStart=performance.now(); state='recording'; lockScreen(); bedSync(); syncUI();
   clockT=setInterval(drawClock,250);
   if(songMode) requestAnimationFrame(markMusicStart);
@@ -273,11 +287,11 @@ async function startRecording(){
 function markMusicStart(){
   if(musicMarked||!player.on) return;
   const c=ac(); const startPerf=performance.now()+(player.t0-c.currentTime)*1000;
-  musicOffset=Math.max(0,Math.min(2,(startPerf-recStartPerf)/1000+outLat()+extraLatency()-player.off));
+  musicOffset=Math.max(0,Math.min(2,(startPerf-recStartPerf)/1000+(REC.on?recDelay:outLat()+extraLatency())-player.off));
   musicMarked=true;
   store.set('lectern.live',{...(store.get('lectern.live',{})||{}),musicOffset});
 }
-function closeMic(){ stopMeter(); if(mic){ mic.getTracks().forEach(t=>t.stop()); mic=null; } releaseMicRoute(); }
+function closeMic(){ stopMeter(); if(state==='counting'||!recMixed) recStop(); if(mic){ mic.getTracks().forEach(t=>t.stop()); mic=null; } releaseMicRoute(); }
 function startMeter(){
   stopMeter(); try{ meter=levelMeter(mic); }catch(e){ meter=null; return; }
   const bar=$('#lvl'), fill=$('#lvlFill'); bar.hidden=false; let warned=0;
@@ -299,12 +313,13 @@ function stopRecording(){
   if(state==='counting'){ state='idle'; closeMic(); showRouteLine(false); syncUI(); return; }
   if(state==='recording') elapsed+=performance.now()-tStart;
   if(recorder&&recorder.state!=='inactive') recorder.stop();
+  if(stemRec&&stemRec.state!=='inactive') try{ stemRec.stop(); }catch(e){}
   if(songMode) player.pause();
   state='idle'; clearInterval(clockT); unlockScreen(); bedSync(); closeMic(); syncUI();
 }
 function pauseToggle(){
-  if(state==='recording'){ try{ recorder.pause(); }catch(e){} elapsed+=performance.now()-tStart; state='paused'; if(songMode) player.pause(); else bed.audio.pause(); }
-  else if(state==='paused'){ try{ recorder.resume(); }catch(e){} tStart=performance.now(); state='recording'; if(songMode) player.play(); else bedSync(); }
+  if(state==='recording'){ try{ recorder.pause(); if(stemRec) stemRec.pause(); }catch(e){} elapsed+=performance.now()-tStart; state='paused'; if(songMode) player.pause(); else bed.audio.pause(); }
+  else if(state==='paused'){ try{ recorder.resume(); if(stemRec) stemRec.resume(); }catch(e){} tStart=performance.now(); state='recording'; if(songMode) player.play(); else bedSync(); }
   else if(state==='counting') return;
   else if(songMode){ ac().resume(); player.playing()?player.pause():player.play(); }
   else if(narrMode){ TTS.on?narratorStop():narratorStart(); }
@@ -315,6 +330,10 @@ document.addEventListener('visibilitychange',()=>{ if(document.hidden&&state==='
 async function onRecorded(){
   const type=(recorder.mimeType||mime||'video/webm').split(';')[0];
   const blob=new Blob(chunks,{type});
+  // the voice stem recorder stops on its own event; give it a moment to flush
+  if(stemRec){ if(stemRec.state!=='inactive') await new Promise(r=>{ stemRec.onstop=r; try{ stemRec.stop(); }catch(e){ r(); } setTimeout(r,1500); }); else await new Promise(r=>setTimeout(r,120)); }
+  const stem=stemChunks.length?new Blob(stemChunks,{type:(stemRec&&stemRec.mimeType||stemMime||'audio/webm').split(';')[0]}):null;
+  const mixed=recMixed; recMixed=false; recStop(); stemRec=null;
   const captions=songMode?K.lines.map((l,i)=>({t:K.t[i]-offsetOf(),e:lineEnd(i)-offsetOf(),text:l,w:K.wt[i]?K.wt[i].map(x=>({s:x.s-offsetOf(),e:x.e-offsetOf()})):null})):[];
   let music=null, mvol=0.8;
   try{
@@ -322,7 +341,7 @@ async function onRecorded(){
     else if(bed.id){ music=await instBlob(CAT.get(bed.id)); mvol=S.settings.bedVol/100; }
   }catch(e){}
   S.stats.days=[...new Set([...S.stats.days,today()])].slice(-120); SAVE.stats();
-  const meta={title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mvol,musicOffset:songMode?musicOffset:0};
+  const meta={title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mixed?recMusicLevel()*(songMode?1:mvol):mvol,musicOffset:mixed||songMode?musicOffset:0,mixed,stem};
   // Save the take as a draft before anything else, then drop the crash-recovery chunks.
   const d=await createDraft(blob,meta,music); await liveEnd();
   openStudio(blob,meta,{draftId:d.id});
@@ -353,6 +372,7 @@ function syncTune(){
   $('#guideTg').setAttribute('aria-checked',String(!!st.guide));
   const b=st.bed&&CAT.get(st.bed); $('#bedName').textContent=b?b.title:'None'; $('#bedVolRow').hidden=!b;
   $('#bedVol').value=st.bedVol; $('#bedVolO').textContent=st.bedVol+'%';
+  const rm=Math.round(recMusicLevel()*100); $('#recMus').value=rm; $('#recMusO').textContent=rm+'%'; $('#recMusRow').hidden=!(songMode||st.bed);
   $('#ttsRate').value=st.ttsRate||1; $('#ttsRateO').textContent=(st.ttsRate||1).toFixed(2)+'×';
   $$('#cdSeg button').forEach(x=>x.setAttribute('aria-pressed',String(+x.dataset.v===st.countdown)));
   $('#mText').setAttribute('aria-pressed',String(st.mirrorText)); $('#mCam').setAttribute('aria-pressed',String(st.mirrorCam)); $('#bdrop').setAttribute('aria-pressed',String(st.backdrop));
@@ -362,6 +382,7 @@ bindRange('#speed','speed'); bindRange('#size','size'); bindRange('#opac','opac'
 $('#focusSl').addEventListener('input',e=>{ setFocus(+e.target.value/100); SAVE.settings(); });
 $('#offs').addEventListener('input',e=>{ const v=+e.target.value; if(A.cat){ S.settings.offsets[A.id]=v; SAVE.settings(); } else { A.offset=v; SAVE.items(); } syncTune(); K.idx=-2; updateKara(); });
 $('#bedVol').addEventListener('input',e=>{ S.settings.bedVol=+e.target.value; bed.audio.volume=S.settings.bedVol/100; SAVE.settings(); syncTune(); });
+$('#recMus').addEventListener('input',e=>{ S.settings.recMusic=+e.target.value/100; SAVE.settings(); syncTune(); if(REC.g) REC.g.level.gain.setTargetAtTime(S.settings.recMusic,ac().currentTime,0.05); });
 $('#ttsRate').addEventListener('input',e=>{ S.settings.ttsRate=+e.target.value; SAVE.settings(); syncTune(); });
 $('#guideTg').onclick=async()=>{ if(state!=='idle'){ toast('Stop recording to change this'); return; } S.settings.guide=!S.settings.guide; SAVE.settings(); syncTune(); const t=player.time(), was=player.playing(); await loadTimedAudio(A); player.seek(t); if(was) player.play(); toast(S.settings.guide?'Guide vocal on':'Guide vocal off'); };
 $('#voiceSeg').addEventListener('click',async e=>{ const b=e.target.closest('button'); if(!b||b.disabled||state!=='idle') return; setVoice(A,b.dataset.v); narratorStop(); const it=A; closeStage(true); await openStage(it); setTune(true);
@@ -401,6 +422,8 @@ async function openStage(it){
     karaList.innerHTML=''; $('#karaEmpty').hidden=true;
     await loadTimedAudio(A); player.pause(); player.seek(0);
     playerOwner({label:titleOf(A),sub:'Stage',icon:'mic-vocal',here:()=>!stage.hidden});
+    // warm up the clean (no guide) arrangement used for recorded takes
+    if(guideable(A)&&S.settings.guide) setTimeout(()=>{ musicBlobFor(A,false).catch(()=>{}); },1500);
     player.setVolume(A.kind==='line'&&voiceOf(A)==='dub'?0:1);
     const synced=buildKara();
     if(A.kind==='line'&&A.clip&&A.clip.type==='video'){ const b=await idb.get('clip:'+A.id); if(b){ pipUrl=URL.createObjectURL(b); pip.src=pipUrl; pip.muted=true; pip.hidden=false; } }
@@ -526,6 +549,8 @@ async function autoSync(it,mode){
   const lines=lyricLines(it.body);
   if(mode!=='generate'&&!lines.length){ toast('Add lines first, or use Generate from audio'); return; }
   if(mode!=='quick'&&ASR.busy){ toast('A transcription is already running — see the progress pill at the top.'); jobRender(); return; }
+  let stt=null;
+  if(mode!=='quick'){ stt=await sttPicker(it,mode==='generate'||!lines.length?'generate':'ai'); if(!stt) return; }
   const ps=progressSheet(mode==='quick'?'Quick auto-sync':mode==='generate'?(it.kind==='line'?'Generating lines':'Generating lyrics'):'AI auto-sync',it.id);
   try{
     const blob=await timedBlob(it,true);
@@ -539,16 +564,20 @@ async function autoSync(it,mode){
       toast('Auto-synced '+lines.length+' lines · '+an.bpm+' BPM. Fine-tune if anything’s early or late.');
     } else {
       let audioDur=0; try{ audioDur=await probeDuration(blob); }catch(e){}
+      const mdl=sttModel(stt.model);
       const res=await transcribeBlob(blob,st=>{
-        if(st.stage==='lib') ps.set('Loading the speech engine…',.03,'First run downloads the Whisper model (about 80 MB), then it’s cached.');
-        else if(st.stage==='model') ps.set('Downloading Whisper model… '+Math.round(st.p*100)+'%',.05+st.p*.45);
+        if(st.stage==='lib') ps.set('Loading '+mdl.name+'…',.03,'The first run downloads the model, then it’s kept on this device.');
+        else if(st.stage==='focus') ps.set('Focusing on the vocals…',.5);
+        else if(st.stage==='model') ps.set('Downloading '+mdl.name+'… '+Math.round(st.p*100)+'%',.05+st.p*.45);
         else if(st.stage==='decode') ps.set('Preparing audio…',.52);
         else if(st.stage==='listen') ps.creep('Listening'+(ASR.device==='webgpu'?' (GPU)':'')+'… this can take a minute',.58,.95,(audioDur||60)*(ASR.device==='webgpu'?0.25:IS_MOBILE?1.6:0.7)+10,'Lectern is transcribing on your device. Nothing is uploaded. You can keep using the app.');
-        else if(st.stage==='retry') ps.set('Switching to a safer mode and retrying…',.55,'Your device’s GPU engine had a hiccup, so Lectern is retrying on the CPU. This is slower but more reliable.'); });
+        else if(st.stage==='retry') ps.set('Switching to a safer mode and retrying…',.55,'Your device’s GPU engine had a hiccup, so Lectern is retrying on the CPU. This is slower but more reliable.'); },stt);
       if(!res.words.length) throw new Error('No words were recognised.');
+      it.stt={model:res.model,language:stt.language,focus:!!stt.vocalFocus,seconds:+res.seconds.toFixed(1),audioDur:+(res.duration||audioDur||0).toFixed(1)};
       ps.set('Aligning words…',.92);
       if(mode==='generate'||!lines.length){
         const g=wordsToLines(res.words); it.body=g.lines.join('\n'); it.times=g.times; it.ends=g.ends; it.wt=g.wt;
+        it.genText=it.body; it.review=reviewFlags(g.lines,g.wt,stt.language);
         if(!it.title||/^Untitled/.test(it.title)) it.title=(g.lines[0]||'Transcribed').replace(/[,.!?]+$/,'').slice(0,40);
         toast('Transcribed '+g.lines.length+' lines with word timing');
       } else {

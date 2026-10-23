@@ -48,7 +48,9 @@ function impulse(c,sec,decay){ const sr=c.sampleRate,len=sec*sr|0,b=c.createBuff
    object saved to the draft as you go; the original audio is never changed.
    --------------------------------------------------------------------- */
 const EDIT_DEFAULT={filter:'none',vVol:1,mVol:.8,mirror:false,vignette:false,grain:false,captions:true,watermark:true,clean:true,cleanAmt:.5,enhance:true,enhanceAmt:.5,musicNudge:0,tracks:null,sel:'main'};
-const mainTrack=fx=>({id:'main',name:'Main vocal',src:'take',lock:true,at:0,trimIn:0,trimOut:0,gain:1,pan:0,mute:false,solo:false,fadeIn:0,fadeOut:0,fx:fx||'none',fxv:fxDefaults(fx||'none')});
+const mainTrack=fx=>({id:'main',name:'Main vocal',gain:1,pan:0,mute:false,solo:false,fx:fx||'none',fxv:fxDefaults(fx||'none'),lock:true,clips:[{id:'mainc',src:'take',lock:true,at:0,trimIn:0,trimOut:0,fadeIn:0,fadeOut:0}]});
+/* Older drafts stored one clip per track; turn each into a layer with one clip. */
+const toLayer=t=>t.clips?t:{id:t.id,name:t.name,gain:t.gain??1,pan:t.pan||0,mute:!!t.mute,solo:!!t.solo,fx:t.fx||'none',fxv:t.fxv||{},lock:!!t.lock,clips:[{id:t.id+'c',src:t.src,lock:!!t.lock,at:t.at||0,trimIn:t.trimIn||0,trimOut:t.trimOut||0,fadeIn:t.fadeIn||0,fadeOut:t.fadeOut||0}]};
 const ST={blob:null,meta:null,url:'',draftId:null,tab:'voice',e:{...EDIT_DEFAULT},
   ctx:null,mode:'buffer',bufs:new Map(),musicBuf:null,
   voiceGain:null,musicGain:null,master:null,recDest:null,chains:new Map(),elemIn:null,
@@ -69,7 +71,7 @@ function decodeIn(ctx,blob){ return blob.arrayBuffer().then(ab=>new Promise((res
 
 /* Per-track chain: loudness → high-pass → (adaptive enhancer | simple polish) → limiter → effect → fades → pan → volume → vocal bus */
 function buildTrackChain(t){
-  const c=ST.ctx, nodes=[], srcs=[]; const sb=ST.bufs.get(t.src)||{};
+  const c=ST.ctx, nodes=[], srcs=[]; const sb=ST.bufs.get((t.clips[0]||{}).src)||{};
   const input=c.createGain(); nodes.push(input); let head=input;
   if(ST.e.clean||ST.e.enhance){
     const lg=c.createGain(); lg.gain.value=loudnessGain(sb.stats); const hp=c.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=85; hp.Q.value=.7; head.connect(lg); lg.connect(hp); nodes.push(lg,hp); head=hp;
@@ -91,23 +93,25 @@ function rebuildVoiceChain(){ rebuildChains(); if(ST.playing){ const t=stNow(); 
 /* ---------- Transport ---------- */
 const musicAt=()=>(ST.meta&&ST.meta.musicOffset||0)+(ST.e.musicNudge||0);
 function stNow(){ return ST.playing?Math.min(ST.dur,ST.pos+(ST.ctx.currentTime-ST.startCtx)):ST.pos; }
-function bufFor(t){ const b=ST.bufs.get(t.src); if(!b) return null; return (ST.e.clean&&b.clean)?b.clean:b.raw; }
-const trackLen=t=>{ const b=ST.bufs.get(t.src); return b&&b.raw?b.raw.duration:0; };
-const regionOf=t=>({a:t.at+t.trimIn, b:t.at+trackLen(t)-t.trimOut});
+function bufFor(c){ const b=ST.bufs.get(c.src); if(!b) return null; return (ST.e.clean&&b.clean)?b.clean:b.raw; }
+const clipLen=c=>{ const b=ST.bufs.get(c.src); return b&&b.raw?b.raw.duration:0; };
+const regionOf=c=>({a:c.at+c.trimIn, b:c.at+clipLen(c)-c.trimOut});
 function audible(){ const tr=ST.e.tracks||[]; const solo=tr.some(t=>t.solo); return tr.filter(t=>solo?t.solo:!t.mute); }
 function startSources(at){
   const c=ST.ctx, when=c.currentTime+0.05; ST.startCtx=when; ST.pos=at; ST.srcs=[];
-  if(ST.mode==='buffer') audible().forEach(t=>{
-    const buf=bufFor(t), ch=ST.chains.get(t.id); if(!buf||!ch) return;
-    const {a,b}=regionOf(t); if(b<=a||at>=b) return;
-    const startTl=Math.max(at,a), wait=startTl-at, off=t.trimIn+(startTl-a), dur=b-startTl;
-    const s=c.createBufferSource(); s.buffer=buf; s.connect(ch.input); s.start(when+wait,off,dur); ST.srcs.push(s);
-    // fades on the timeline
-    const g=ch.fade.gain, tl2c=x=>when+(x-at); g.cancelScheduledValues(0);
-    const valAt=x=>{ let v=1; if(t.fadeIn>0) v=Math.min(v,clamp01((x-a)/t.fadeIn)); if(t.fadeOut>0) v=Math.min(v,clamp01((b-x)/t.fadeOut)); return v; };
-    g.setValueAtTime(valAt(startTl),tl2c(startTl));
-    if(t.fadeIn>0&&a+t.fadeIn>startTl) g.linearRampToValueAtTime(1,tl2c(a+t.fadeIn));
-    if(t.fadeOut>0){ const fo=Math.max(startTl,b-t.fadeOut); g.setValueAtTime(valAt(fo),tl2c(fo)); g.linearRampToValueAtTime(0,tl2c(b)); }
+  if(ST.mode==='buffer') audible().forEach(t=>{ const ch=ST.chains.get(t.id); if(!ch) return;
+    t.clips.forEach(cl=>{
+      const buf=bufFor(cl); if(!buf) return;
+      const {a,b}=regionOf(cl); if(b<=a||at>=b) return;
+      const startTl=Math.max(at,a), wait=startTl-at, off=cl.trimIn+(startTl-a), dur=b-startTl;
+      const s=c.createBufferSource(); s.buffer=buf; const fg=c.createGain(); s.connect(fg); fg.connect(ch.input); s.start(when+wait,off,dur); s.onended=()=>{ try{ fg.disconnect(); }catch(e){} }; ST.srcs.push(s);
+      // per-clip fades on the timeline
+      const g=fg.gain, tl2c=x=>when+(x-at);
+      const valAt=x=>{ let v=1; if(cl.fadeIn>0) v=Math.min(v,clamp01((x-a)/cl.fadeIn)); if(cl.fadeOut>0) v=Math.min(v,clamp01((b-x)/cl.fadeOut)); return v; };
+      g.setValueAtTime(valAt(startTl),tl2c(startTl));
+      if(cl.fadeIn>0&&a+cl.fadeIn>startTl) g.linearRampToValueAtTime(1,tl2c(a+cl.fadeIn));
+      if(cl.fadeOut>0){ const fo=Math.max(startTl,b-cl.fadeOut); g.setValueAtTime(valAt(fo),tl2c(fo)); g.linearRampToValueAtTime(0,tl2c(b)); }
+    });
   });
   if(ST.musicBuf){ const m=c.createBufferSource(); m.buffer=ST.musicBuf; m.loop=!!(ST.meta&&ST.meta.loop); m.connect(ST.musicGain);
     const mo=at-musicAt();
@@ -134,16 +138,21 @@ function applyMix(){ if(!ST.ctx) return; const t=ST.ctx.currentTime; ST.voiceGai
 async function openStudio(blob,meta,opts={}){
   ST.blob=blob; ST.meta={...meta,loop:meta.loop??(meta.kind!=='song')}; ST.draftId=opts.draftId||null;
   const ed=opts.edit||{};
-  ST.e={...EDIT_DEFAULT,mVol:meta.musicVol??.8,captions:!!(meta.captions&&meta.captions.length),...ed};
+  // Takes recorded with the in-app mixer already have a processed voice; don't process twice.
+  const fresh=meta.mixed&&!opts.edit?{clean:false,enhance:false}:{};
+  ST.e={...EDIT_DEFAULT,mVol:meta.musicVol??.8,captions:!!(meta.captions&&meta.captions.length),...fresh,...ed};
   if(!Array.isArray(ST.e.tracks)||!ST.e.tracks.length) ST.e.tracks=[mainTrack(ed.voice)];
+  ST.e.tracks=ST.e.tracks.map(toLayer);
   if(!trackById(ST.e.sel)) ST.e.sel=ST.e.tracks[0].id;
+  ST.selClip=(selTrack().clips[0]||{}).id||null; UNDO.past=[]; UNDO.future=[]; SUB='';
   ST.tab=opts.edit?ST.tab:'voice'; ST.cancel=false; ST.thumbFrame=null; ST.pos=0; ST.playing=false;
   ST.bufs=new Map(); ST.musicBuf=null; ST.mode='buffer'; [...ST.chains.keys()].forEach(dropChain);
   if(!ST.draftId&&meta.remix){ const d=await createDraft(blob,meta,meta.music||null); ST.draftId=d.id; }
   if(ST.draftId) markDraftOpen(ST.draftId,true);
   if(ST.url) URL.revokeObjectURL(ST.url);
   ST.url=URL.createObjectURL(blob); stVideo.src=ST.url; stVideo.muted=true;
-  ST.hasMusic=!!meta.music;
+  // A mixed take without its voice stem (e.g. recovered after a crash) already contains the music.
+  ST.hasMusic=!!meta.music&&!(meta.mixed&&!meta.stem);
   $('#studio').hidden=false; document.body.style.overflow='hidden';
   $('#stSaved').classList.remove('on'); $('#stSaved').textContent='';
   ensureStudioGraph();
@@ -157,11 +166,11 @@ async function openStudio(blob,meta,opts={}){
   if(ST.draftId&&ST.thumbFrame){ try{ const c=document.createElement('canvas'); c.width=160; c.height=Math.round(160*stCanvas.height/stCanvas.width); c.getContext('2d').drawImage(ST.thumbFrame,0,0,c.width,c.height); saveDraftEdit(ST.draftId,ST.e,{thumb:c.toDataURL('image/jpeg',.7),dur:ST.dur}); }catch(e){} }
   applyLook(); renderStPanel(); stLoop();
   if(ST.ctx){
-    try{ const raw=await decodeIn(ST.ctx,blob); if(raw.duration<0.3) throw new Error('no audio'); ST.bufs.set('take',{raw}); if(!ST.dur||!isFinite(ST.dur)) ST.dur=raw.duration; }
+    try{ const raw=await decodeIn(ST.ctx,meta.stem||blob); if(raw.duration<0.3) throw new Error('no audio'); ST.bufs.set('take',{raw}); if(!ST.dur||!isFinite(ST.dur)) ST.dur=raw.duration; }
     catch(e){ ST.mode='element'; try{ ST.elemSrc=ST.elemSrc||ST.ctx.createMediaElementSource(stVideo); ST.elemIn=true; stVideo.muted=false; }catch(_){} }
     // recorded layers
-    for(const t of ST.e.tracks){ if(t.src.startsWith('ovd:')&&!ST.bufs.has(t.src)&&ST.draftId){ const b=await idb.get('draftv:'+ST.draftId+':'+t.src.slice(4),'rec'); if(b){ try{ ST.bufs.set(t.src,{raw:await decodeIn(ST.ctx,b)}); }catch(e){} } } }
-    if(meta.music){ try{ ST.musicBuf=await decodeIn(ST.ctx,meta.music); }catch(e){ ST.musicBuf=null; ST.hasMusic=false; } }
+    for(const t of ST.e.tracks) for(const cl of t.clips){ if(cl.src.startsWith('ovd:')&&!ST.bufs.has(cl.src)&&ST.draftId){ const b=await idb.get('draftv:'+ST.draftId+':'+cl.src.slice(4),'rec'); if(b){ try{ ST.bufs.set(cl.src,{raw:await decodeIn(ST.ctx,b)}); }catch(e){} } } }
+    if(meta.music&&ST.hasMusic){ try{ ST.musicBuf=await decodeIn(ST.ctx,meta.music); }catch(e){ ST.musicBuf=null; ST.hasMusic=false; } }
     rebuildChains(); applyMix();
     if(ST.e.clean||ST.e.enhance) runClean();
   }
@@ -345,61 +354,134 @@ function renderStPanel(){
 }
 const fmtParam=(x,q)=>(Math.abs(q.step)<1?(+x).toFixed(1):Math.round(x))+q.unit;
 
-/* ---------- Tracks: lanes, selection and per-track tools ---------- */
-function renderTracks(p){
-  const tr=ST.e.tracks, t=selTrack(), len=trackLen(t), r=regionOf(t);
-  p.innerHTML=`<div class="lanes" id="lanes"><canvas id="lanesCv"></canvas><i class="lanes-head" id="lanesHead"></i></div>
-    <div class="trk-add"><button class="btn sm" id="tkDup">${ic('copy','xs')}Duplicate</button><button class="btn sm" id="tkSplit">${ic('scissors','xs')}Split at playhead</button><button class="btn sm white" id="tkRec">${ic('mic','xs')}Record a layer</button></div>
-    <div class="card trk" style="margin:12px 20px 0">
-      <div class="trk-h"><input class="trk-name" id="tkName" value="${esc(t.name)}" maxlength="24" aria-label="Track name">
-        <button class="chip" id="tkMute" aria-pressed="${!!t.mute}">${ic(t.mute?'volume-x':'volume-2','xs')}Mute</button><button class="chip" id="tkSolo" aria-pressed="${!!t.solo}">${ic('headphones','xs')}Solo</button>
-        ${t.lock?'':`<button class="circ sm" id="tkDel" aria-label="Delete track">${ic('trash','xs')}</button>`}</div>
-      <div class="mixrow"><span class="ml">Volume</span><input type="range" data-tk="gain" min="0" max="150" value="${Math.round((t.gain??1)*100)}"><output>${Math.round((t.gain??1)*100)}%</output></div>
-      <div class="mixrow"><span class="ml">Pan</span><input type="range" data-tk="pan" min="-100" max="100" value="${Math.round((t.pan||0)*100)}"><output>${panLbl(t.pan||0)}</output></div>
-      <div class="mixrow"><span class="ml">Fade in</span><input type="range" data-tk="fadeIn" min="0" max="3" step="0.05" value="${t.fadeIn||0}"><output>${(t.fadeIn||0).toFixed(2)}s</output></div>
-      <div class="mixrow"><span class="ml">Fade out</span><input type="range" data-tk="fadeOut" min="0" max="3" step="0.05" value="${t.fadeOut||0}"><output>${(t.fadeOut||0).toFixed(2)}s</output></div>
-      <div class="mixrow"><span class="ml">Trim start</span><input type="range" data-tk="trimIn" min="0" max="${Math.max(0,len-0.2).toFixed(2)}" step="0.01" value="${t.trimIn}"><output>${t.trimIn.toFixed(2)}s</output></div>
-      <div class="mixrow"><span class="ml">Trim end</span><input type="range" data-tk="trimOut" min="0" max="${Math.max(0,len-0.2).toFixed(2)}" step="0.01" value="${t.trimOut}"><output>${t.trimOut.toFixed(2)}s</output></div>
-      ${t.lock?`<p class="hint" style="margin:6px 2px 4px">The main vocal stays in sync with the video. Duplicate it to move a copy.</p>`:`<div class="nudge"><span class="ml">Position <b>${fmtPos(t.at+t.trimIn)}</b></span><button class="btn sm" data-nudge="-0.1">−100ms</button><button class="btn sm" data-nudge="-0.01">−10</button><button class="btn sm" data-nudge="0.01">+10</button><button class="btn sm" data-nudge="0.1">+100ms</button></div>`}
-      <button class="setrow" id="tkFx" style="padding-left:0;padding-right:0"><div class="lbl">Effect<small>${esc(fxName(t.fx))}</small></div>${ic('chevron-right','sm')}</button>
-    </div>
-    <p class="hint pad" style="margin-top:10px">Tap a lane to select it. Drag a layer to move it. Edits never change your original recording.</p>`;
-  drawLanes();
-}
+/* ---------- Tracks: layers of clips, a contextual toolbar, trim handles, undo ----------
+   A layer is one lane (its own volume, pan, effect, mute, solo). It holds clips: regions
+   of a recording placed on the timeline. Tap a clip to select it; a toolbar with the
+   common actions appears right under the timeline. Drag a clip to move it, drag its
+   edges to trim it. Everything is undoable and nothing changes the original audio. */
+const UNDO={past:[],future:[]};
+const snapEdit=()=>JSON.stringify({tracks:ST.e.tracks,sel:ST.e.sel,clip:ST.selClip});
+function pushUndo(){ UNDO.past.push(snapEdit()); if(UNDO.past.length>60) UNDO.past.shift(); UNDO.future=[]; }
+function restoreEdit(json){ const s=JSON.parse(json); ST.e.tracks=s.tracks; ST.e.sel=s.sel; ST.selClip=s.clip; rebuildChains(); restartIfPlaying(); persistEdit(); renderStPanel(); }
+function undoEdit(){ if(!UNDO.past.length) return; UNDO.future.push(snapEdit()); restoreEdit(UNDO.past.pop()); toast('Undone'); }
+function redoEdit(){ if(!UNDO.future.length) return; UNDO.past.push(snapEdit()); restoreEdit(UNDO.future.pop()); toast('Redone'); }
+const selClip=()=>{ const t=selTrack(); return t.clips.find(c=>c.id===ST.selClip)||null; };
 const panLbl=v=>Math.abs(v)<0.02?'Centre':(v<0?'L ':'R ')+Math.round(Math.abs(v)*100);
 const fmtPos=x=>{ const neg=x<0, a=Math.abs(x), m=Math.floor(a/60), s=a-m*60; return (neg?'−':'')+m+':'+s.toFixed(2).padStart(5,'0'); };
-const LANE_H=44;
+function renderTracks(p){
+  const t=selTrack(), c=selClip();
+  const tool=(id,icon,label,dis,aria)=>`<button class="tbtn" id="${id}" ${dis?'disabled':''} aria-label="${aria||label}" title="${aria||label}">${ic(icon,'sm')}<span>${label}</span></button>`;
+  const multi=t.clips.length>1;
+  p.innerHTML=`<div class="lanes-bar"><button class="btn sm white" id="tkRec">${ic('mic','xs')}Record a layer</button><span class="sp"></span>
+      <button class="circ sm" id="tkUndo" aria-label="Undo" title="Undo" ${UNDO.past.length?'':'disabled'}>${ic('undo-2','sm')}</button><button class="circ sm" id="tkRedo" aria-label="Redo" title="Redo" ${UNDO.future.length?'':'disabled'}>${ic('redo-2','sm')}</button></div>
+    <div class="lanes" id="lanes"><canvas id="lanesCv"></canvas><i class="lanes-head" id="lanesHead"></i></div>
+    ${c?`<div class="toolbar" role="toolbar" aria-label="Clip tools">
+      ${tool('tkSplit','scissors','Split')}${tool('tkDup','copy','Duplicate')}${tool('tkDel','trash','Delete',!multi&&t.lock,multi?'Delete this clip':'Delete this layer')}${tool('tkVol','volume-2','Volume')}${tool('tkFade','activity','Fade')}${tool('tkMore','ellipsis','More')}</div>
+      <div class="tsub" id="tkSub"></div>
+      <p class="hint pad sel-info">${esc(t.name)} · clip ${t.clips.indexOf(c)+1} of ${t.clips.length} · starts ${fmtPos(c.at+c.trimIn)}${c.lock?' · stays in sync with the video':' · drag to move'}</p>`
+    :`<p class="hint pad sel-info">Tap a clip to edit it. Drag a clip to move it, or drag its edges to trim.</p>`}`;
+  drawLanes(); renderSub();
+}
+let SUB='';
+function renderSub(){
+  const el=$('#tkSub'); if(!el) return; const t=selTrack(), c=selClip(); if(!c){ el.innerHTML=''; return; }
+  if(SUB==='vol') el.innerHTML=`<div class="mixrow"><span class="ml">Layer volume</span><input type="range" data-tk="gain" min="0" max="150" value="${Math.round((t.gain??1)*100)}"><output>${Math.round((t.gain??1)*100)}%</output></div>
+    <div class="mixrow"><span class="ml">Pan</span><input type="range" data-tk="pan" min="-100" max="100" value="${Math.round((t.pan||0)*100)}"><output>${panLbl(t.pan||0)}</output></div>`;
+  else if(SUB==='fade') el.innerHTML=`<div class="mixrow"><span class="ml">Fade in</span><input type="range" data-ck="fadeIn" min="0" max="3" step="0.05" value="${c.fadeIn||0}"><output>${(c.fadeIn||0).toFixed(2)}s</output></div>
+    <div class="mixrow"><span class="ml">Fade out</span><input type="range" data-ck="fadeOut" min="0" max="3" step="0.05" value="${c.fadeOut||0}"><output>${(c.fadeOut||0).toFixed(2)}s</output></div>`;
+  else el.innerHTML='';
+  $$('.toolbar .tbtn').forEach(b=>b.setAttribute('aria-pressed',String((b.id==='tkVol'&&SUB==='vol')||(b.id==='tkFade'&&SUB==='fade'))));
+}
+const LANE_H=48, HANDLE=16;
+function laneGeom(){ const cv=$('#lanesCv'); return {cv,W:cv.clientWidth||cv.parentElement.clientWidth||360,D:Math.max(ST.dur,1)}; }
 function drawLanes(){
   const cv=$('#lanesCv'); if(!cv) return; const tr=ST.e.tracks, W=cv.parentElement.clientWidth||360, H=tr.length*LANE_H+(ST.musicBuf?30:0)+8, dpr=devicePixelRatio||1;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px'; const g=cv.getContext('2d'); g.scale(dpr,dpr); g.clearRect(0,0,W,H);
-  const D=Math.max(ST.dur,1), x=tt=>tt/D*W; let y=4;
-  tr.forEach((t,i)=>{ const sel=t.id===ST.e.sel, b=ST.bufs.get(t.src), {a,b:e}=regionOf(t), dim=(tr.some(z=>z.solo)&&!t.solo)||t.mute;
-    g.fillStyle=sel?'rgba(139,92,246,.10)':'rgba(255,255,255,.03)'; g.fillRect(0,y,W,LANE_H-4);
-    const x0=x(Math.max(0,a)), x1=x(Math.min(D,e)); g.globalAlpha=dim?.35:1;
-    g.fillStyle=sel?'rgba(167,139,250,.38)':'rgba(255,255,255,.14)'; roundRectPath(g,x0,y+3,Math.max(2,x1-x0),LANE_H-10,6); g.fill();
-    if(b&&b.raw){ const pk=peaksOf(b.raw), len=b.raw.duration; g.fillStyle=sel?'#E9D5FF':'#9A9AA2'; const mid=y+(LANE_H-4)/2;
-      for(let px=Math.floor(x0);px<x1;px++){ const st=(px/W*D-t.at)/len; if(st<0||st>1) continue; const v=pk[Math.min(pk.length-1,Math.floor(st*pk.length))]; const h=Math.max(1,v*(LANE_H-16)); g.fillRect(px,mid-h/2,1,h); } }
-    g.globalAlpha=1; g.fillStyle='#fff'; g.font='600 11px '+getComputedStyle(document.body).fontFamily; g.fillText(t.name+(t.fx!=='none'?' · '+fxName(t.fx):''),Math.max(6,x0+6),y+14);
+  const D=Math.max(ST.dur,1), x=tt=>tt/D*W; let y=4; const font='600 11px '+uiFont();
+  const solo=tr.some(z=>z.solo);
+  tr.forEach(t=>{ const selL=t.id===ST.e.sel, dim=(solo&&!t.solo)||t.mute;
+    g.fillStyle=selL?'rgba(139,92,246,.08)':'rgba(255,255,255,.025)'; g.fillRect(0,y,W,LANE_H-4);
+    t.clips.forEach(c=>{ const sel=selL&&c.id===ST.selClip, b=ST.bufs.get(c.src), {a,b:e}=regionOf(c);
+      const x0=x(Math.max(0,a)), x1=x(Math.min(D,e)); g.globalAlpha=dim?.35:1;
+      g.fillStyle=sel?'rgba(167,139,250,.45)':'rgba(255,255,255,.14)'; roundRectPath(g,x0,y+3,Math.max(3,x1-x0),LANE_H-10,6); g.fill();
+      if(b&&b.raw){ const pk=peaksOf(b.raw), len=b.raw.duration; g.fillStyle=sel?'#F5F3FF':'#9A9AA2'; const mid=y+(LANE_H-4)/2;
+        for(let px=Math.floor(x0);px<x1;px++){ const st=(px/W*D-c.at)/len; if(st<0||st>1) continue; const v=pk[Math.min(pk.length-1,Math.floor(st*pk.length))]; const h=Math.max(1,v*(LANE_H-18)); g.fillRect(px,mid-h/2,1,h); } }
+      if(c.fadeIn>0){ g.fillStyle='rgba(0,0,0,.35)'; g.beginPath(); g.moveTo(x0,y+3); g.lineTo(x(a+c.fadeIn),y+3); g.lineTo(x0,y+LANE_H-7); g.fill(); }
+      if(c.fadeOut>0){ g.fillStyle='rgba(0,0,0,.35)'; g.beginPath(); g.moveTo(x1,y+3); g.lineTo(x(e-c.fadeOut),y+3); g.lineTo(x1,y+LANE_H-7); g.fill(); }
+      g.globalAlpha=1;
+      if(sel){ g.strokeStyle='#C4B5FD'; g.lineWidth=2; roundRectPath(g,x0+1,y+4,Math.max(2,x1-x0-2),LANE_H-12,6); g.stroke();
+        g.fillStyle='#fff'; [x0,x1-6].forEach(hx=>{ roundRectPath(g,hx,y+10,6,LANE_H-24,3); g.fill(); }); }
+    });
+    g.fillStyle=dim?'rgba(255,255,255,.5)':'#fff'; g.font=font; const lbl=t.name+(t.fx!=='none'?' · '+fxName(t.fx):'')+(t.mute?' · muted':'')+(t.solo?' · solo':''); g.fillText(lbl,6,y+14);
     y+=LANE_H; });
-  if(ST.musicBuf){ const a=musicAt(); g.fillStyle='rgba(251,146,60,.18)'; roundRectPath(g,x(Math.max(0,a)),y+3,W-x(Math.max(0,a)),22,6); g.fill(); g.fillStyle='#FDBA74'; g.font='600 11px '+getComputedStyle(document.body).fontFamily; g.fillText('Music',x(Math.max(0,a))+6,y+18); }
+  if(ST.musicBuf){ const a=musicAt(); g.fillStyle='rgba(251,146,60,.18)'; roundRectPath(g,x(Math.max(0,a)),y+3,W-x(Math.max(0,a)),22,6); g.fill(); g.fillStyle='#FDBA74'; g.font=font; g.fillText('Music',x(Math.max(0,a))+6,y+18); }
   moveLaneHead(stNow());
 }
 function moveLaneHead(t){ const h=$('#lanesHead'), cv=$('#lanesCv'); if(!h||!cv) return; h.style.transform='translateX('+(t/Math.max(ST.dur,1)*cv.clientWidth).toFixed(1)+'px)'; }
-function laneAt(ev){ const cv=$('#lanesCv'), r=cv.getBoundingClientRect(); const i=Math.floor((ev.clientY-r.top-4)/LANE_H); return {t:ST.e.tracks[i]||null,time:(ev.clientX-r.left)/r.width*Math.max(ST.dur,1)}; }
+function hitClip(ev){ const {cv,W,D}=laneGeom(), r=cv.getBoundingClientRect(), px=ev.clientX-r.left, py=ev.clientY-r.top;
+  const li=Math.floor((py-4)/LANE_H), t=ST.e.tracks[li]; if(!t) return {time:px/W*D};
+  for(const c of t.clips){ const {a,b}=regionOf(c), x0=a/D*W, x1=b/D*W; if(px>=x0-HANDLE/2&&px<=x1+HANDLE/2){ const sel=t.id===ST.e.sel&&c.id===ST.selClip; const edge=sel&&px<x0+HANDLE?'in':sel&&px>x1-HANDLE?'out':null; return {t,c,edge,time:px/W*D}; } }
+  return {t,time:px/W*D}; }
 let LDRAG=null;
-$('#stPanel').addEventListener('pointerdown',e=>{ if(!e.target.closest('#lanesCv')) return; const {t,time}=laneAt(e); if(!t) return; ST.e.sel=t.id; LDRAG={t,x0:e.clientX,at0:t.at,moved:false,time}; e.target.setPointerCapture(e.pointerId); drawLanes(); });
-$('#stPanel').addEventListener('pointermove',e=>{ if(!LDRAG||LDRAG.t.lock) return; const cv=$('#lanesCv'); const dx=(e.clientX-LDRAG.x0)/cv.getBoundingClientRect().width*Math.max(ST.dur,1); if(Math.abs(e.clientX-LDRAG.x0)>4) LDRAG.moved=true; if(LDRAG.moved){ LDRAG.t.at=+(LDRAG.at0+dx).toFixed(3); drawLanes(); } });
-$('#stPanel').addEventListener('pointerup',e=>{ if(!LDRAG) return; const d=LDRAG; LDRAG=null; if(d.moved){ restartIfPlaying(); persistEdit(); } else if(!d.t.lock||true){ /* tap selects; tapping empty space seeks */ } renderStPanel(); });
+$('#stPanel').addEventListener('pointerdown',e=>{ if(!e.target.closest('#lanesCv')) return; const h=hitClip(e);
+  if(!h.c){ if(h.t){ ST.e.sel=h.t.id; ST.selClip=h.t.clips[0]&&h.t.clips[0].id; } stSeek(h.time); renderStPanel(); return; }
+  if(!(h.t.id===ST.e.sel&&h.c.id===ST.selClip)){ ST.e.sel=h.t.id; ST.selClip=h.c.id; SUB=''; renderStPanel(); }
+  LDRAG={t:h.t,c:h.c,edge:h.edge,x0:e.clientX,at0:h.c.at,in0:h.c.trimIn,out0:h.c.trimOut,moved:false,pushed:false}; e.target.setPointerCapture(e.pointerId); });
+$('#stPanel').addEventListener('pointermove',e=>{ if(!LDRAG) return; const {W,D}=laneGeom(); const dt=(e.clientX-LDRAG.x0)/W*D; if(Math.abs(e.clientX-LDRAG.x0)<4&&!LDRAG.moved) return;
+  const c=LDRAG.c, len=clipLen(c);
+  if(!LDRAG.pushed){ pushUndo(); LDRAG.pushed=true; } LDRAG.moved=true;
+  if(LDRAG.edge==='in') c.trimIn=+Math.max(0,Math.min(len-c.trimOut-0.15,LDRAG.in0+dt)).toFixed(3);
+  else if(LDRAG.edge==='out') c.trimOut=+Math.max(0,Math.min(len-c.trimIn-0.15,LDRAG.out0-dt)).toFixed(3);
+  else if(!c.lock) c.at=+(LDRAG.at0+dt).toFixed(3);
+  else if(!LDRAG.warned){ LDRAG.warned=true; toast('The main vocal stays in sync with the video. Duplicate it to move a copy.'); }
+  drawLanes(); });
+$('#stPanel').addEventListener('pointerup',()=>{ if(!LDRAG) return; const d=LDRAG; LDRAG=null; if(d.moved){ restartIfPlaying(); persistEdit(); renderStPanel(); } });
 
 function newTrackId(){ return 't'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
-function addTrack(t){ ST.e.tracks.push(t); ST.e.sel=t.id; ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); persistEdit(); renderStPanel(); }
-function dupTrack(){ const t=selTrack(); const n=JSON.parse(JSON.stringify(t)); n.id=newTrackId(); n.lock=false; n.name=(t.name.replace(/ \(copy\d*\)$/,''))+' copy'; n.at=t.at+0.02; addTrack(n); toast('Duplicated. It’s 20 ms behind for a natural double; move it or change its effect.'); }
-function splitTrack(){ const t=selTrack(), p=stNow(), {a,b}=regionOf(t); if(p<=a+0.05||p>=b-0.05){ toast('Move the playhead inside the selected track to split it'); return; }
-  const n=JSON.parse(JSON.stringify(t)); n.id=newTrackId(); n.lock=false; n.name=t.name.replace(/ \(part \d+\)$/,'')+' (part 2)'; n.trimIn=+(p-t.at).toFixed(3); n.fadeIn=0;
-  t.trimOut=+(t.at+trackLen(t)-p).toFixed(3); t.fadeOut=0; addTrack(n); toast('Split into two parts'); }
-async function delTrack(){ const t=selTrack(); if(t.lock) return; ST.e.tracks=ST.e.tracks.filter(x=>x!==t); dropChain(t.id); ST.e.sel=ST.e.tracks[0].id;
-  if(t.src.startsWith('ovd:')&&!ST.e.tracks.some(x=>x.src===t.src)&&ST.draftId){ idb.del('draftv:'+ST.draftId+':'+t.src.slice(4),'rec'); ST.bufs.delete(t.src); }
-  restartIfPlaying(); persistEdit(); renderStPanel(); }
+function addLayer(t){ ST.e.tracks.push(t); ST.e.sel=t.id; ST.selClip=t.clips[0]&&t.clips[0].id; ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); persistEdit(); renderStPanel(); }
+function dupLayer(){ pushUndo(); const t=selTrack(); const n=JSON.parse(JSON.stringify(t)); n.id=newTrackId(); n.name=t.name.replace(/ copy( \d+)?$/,'')+' copy'; n.solo=false; n.clips.forEach(c=>{ c.id=newTrackId(); c.lock=false; c.at=+(c.at+0.02).toFixed(3); }); addLayer(n); toast('Duplicated as a new layer, 20 ms behind for a natural double'); }
+function dupClip(){ const t=selTrack(), c=selClip(); if(!c) return; pushUndo(); const n=JSON.parse(JSON.stringify(c)); n.id=newTrackId(); n.lock=false; const {b}=regionOf(c); n.at=+(b-n.trimIn).toFixed(3); t.clips.push(n); ST.selClip=n.id; restartIfPlaying(); persistEdit(); renderStPanel(); toast('Clip copied right after the original'); }
+function splitClip(){ const t=selTrack(), c=selClip(); if(!c) return; const p=stNow(), {a,b}=regionOf(c);
+  if(p<=a+0.05||p>=b-0.05){ toast('Move the playhead over the selected clip, then split'); return; }
+  pushUndo(); const n=JSON.parse(JSON.stringify(c)); n.id=newTrackId(); n.trimIn=+(p-c.at).toFixed(3); n.fadeIn=0;
+  c.trimOut=+(c.at+clipLen(c)-p).toFixed(3); c.fadeOut=0; t.clips.push(n); ST.selClip=n.id; restartIfPlaying(); persistEdit(); renderStPanel(); toast('Split at the playhead. Delete either part to crop it out.'); }
+function delSelected(){ const t=selTrack(), c=selClip(); if(!c) return;
+  if(t.clips.length>1){ pushUndo(); t.clips=t.clips.filter(x=>x!==c); ST.selClip=t.clips[0].id; restartIfPlaying(); persistEdit(); renderStPanel(); toast('Clip deleted'); return; }
+  delLayer(); }
+function delLayer(){ const t=selTrack(); if(t.lock){ toast('The main vocal can’t be deleted. Mute it instead.'); return; }
+  pushUndo(); ST.e.tracks=ST.e.tracks.filter(x=>x!==t); dropChain(t.id); ST.e.sel=ST.e.tracks[0].id; ST.selClip=ST.e.tracks[0].clips[0]&&ST.e.tracks[0].clips[0].id;
+  restartIfPlaying(); persistEdit(); renderStPanel(); toast('Layer deleted'); }
+function moreSheet(){
+  const t=selTrack(), c=selClip(); if(!c) return;
+  const nudges=[-0.1,-0.01,0.01,0.1];
+  sheet(`<h3>${esc(t.name)}</h3><p class="sub" style="margin:0 20px 8px">Clip ${t.clips.indexOf(c)+1} of ${t.clips.length}</p>
+    <div class="list" style="padding:0 8px">
+      <button class="opt" data-m="fx">${ic('audio-waveform','sm')}<span><b>Effect</b><small>${esc(fxName(t.fx))}</small></span></button>
+      <button class="opt" data-m="mute">${ic(t.mute?'volume-2':'volume-x','sm')}<span><b>${t.mute?'Unmute layer':'Mute layer'}</b></span></button>
+      <button class="opt" data-m="solo">${ic('headphones','sm')}<span><b>${t.solo?'Stop solo':'Solo layer'}</b><small>Hear only this layer</small></span></button>
+      <button class="opt" data-m="copy">${ic('copy','sm')}<span><b>Copy clip</b><small>Places a copy right after it, on the same layer</small></span></button>
+      <button class="opt" data-m="rename">${ic('pencil','sm')}<span><b>Rename layer</b></span></button>
+      ${t.lock?'':`<button class="opt" data-m="dellayer" style="color:var(--hot)">${ic('trash','sm')}<span><b>Delete layer</b><small>Removes every clip on it</small></span></button>`}
+    </div>
+    ${c.lock?'':`<div class="h3 pad" style="margin:12px 0 6px">Nudge clip</div><div class="nudge pad">${nudges.map(v=>`<button class="btn sm" data-n="${v}">${v>0?'+':'−'}${Math.abs(v)>=0.1?Math.round(Math.abs(v)*1000)+' ms':Math.round(Math.abs(v)*1000)}</button>`).join('')}</div>`}
+    <div class="h3 pad" style="margin:12px 0 6px">Trim precisely</div>
+    <div class="mixrow"><span class="ml">Start</span><input type="range" data-ck="trimIn" min="0" max="${Math.max(0,clipLen(c)-0.2).toFixed(2)}" step="0.01" value="${c.trimIn}"><output>${c.trimIn.toFixed(2)}s</output></div>
+    <div class="mixrow"><span class="ml">End</span><input type="range" data-ck="trimOut" min="0" max="${Math.max(0,clipLen(c)-0.2).toFixed(2)}" step="0.01" value="${c.trimOut}"><output>${c.trimOut.toFixed(2)}s</output></div>`,
+  {onMount(el,close){
+    el.addEventListener('click',e=>{ const m=e.target.closest('[data-m]'), n=e.target.closest('[data-n]');
+      if(n){ pushUndo(); c.at=+(c.at+(+n.dataset.n)).toFixed(3); restartIfPlaying(); persistEdit(); drawLanes(); return; }
+      if(!m) return; const k=m.dataset.m; close();
+      if(k==='fx'){ ST.tab='voice'; renderStPanel(); }
+      else if(k==='mute'||k==='solo'){ pushUndo(); t[k]=!t[k]; restartIfPlaying(); persistEdit(); renderStPanel(); }
+      else if(k==='copy') dupClip();
+      else if(k==='dellayer') delLayer();
+      else if(k==='rename') sheet(`<h3>Rename layer</h3><label class="field"><input id="rnL" value="${esc(t.name)}" maxlength="24"></label><div class="row-btns"><button class="btn white" id="rnOk">Save</button></div>`,{onMount(el2,close2){ el2.querySelector('#rnOk').onclick=()=>{ pushUndo(); t.name=el2.querySelector('#rnL').value.trim()||t.name; persistEdit(); close2(); renderStPanel(); }; }});
+    });
+    el.addEventListener('pointerdown',e=>{ if(e.target.matches('input[type=range]')) pushUndo(); });
+    el.addEventListener('input',e=>{ const r=e.target; if(!r.dataset.ck) return; const k=r.dataset.ck, len=clipLen(c), other=k==='trimIn'?c.trimOut:c.trimIn; let v=Math.min(+r.value,Math.max(0,len-other-0.2)); c[k]=v; r.value=v; r.nextElementSibling.textContent=v.toFixed(2)+'s'; drawLanes(); persistEdit(); });
+    el.addEventListener('change',()=>restartIfPlaying());
+  },onClose(){ renderStPanel(); }});
+}
 
 /* Record a new layer on top of the mix (headphones recommended). The layer is placed
    back by the output + input delay so it lines up with what you heard. */
@@ -413,9 +495,9 @@ async function recordLayer(){
   let rec; try{ rec=new MediaRecorder(mic,mt?{mimeType:mt,audioBitsPerSecond:160000}:undefined); }catch(e){ mic.getTracks().forEach(t=>t.stop()); toast('Recording isn’t supported here'); return; }
   const chunks=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
   const startPos=ST.pos>=ST.dur-0.5?0:ST.pos;
-  const inLat=(mic.getAudioTracks()[0].getSettings().latency)||0.03;
+  const inLat=micInLatency(mic);
   stPause(); ST.pos=startPos;
-  const btn=$('#tkRec'); const n=ST.e.tracks.filter(t=>t.src.startsWith('ovd:')).length+1;
+  const btn=$('#tkRec'); const n=ST.e.tracks.filter(t=>t.clips.some(c=>c.src.startsWith('ovd:'))).length+1;
   ST.overdub={stop:()=>{ try{ rec.stop(); }catch(e){} }};
   const done=new Promise(r=>rec.onstop=r);
   rec.start(500); stPlay();
@@ -427,7 +509,8 @@ async function recordLayer(){
     const key=Date.now().toString(36); await idb.putx('draftv:'+ST.draftId+':'+key,blob,'rec');
     const raw=await decodeIn(ST.ctx,blob); ST.bufs.set('ovd:'+key,{raw});
     const lat=outLat()+extraLatency()+inLat;
-    addTrack({id:newTrackId(),name:'Layer '+n,src:'ovd:'+key,lock:false,at:+(startPos-lat).toFixed(3),trimIn:0,trimOut:0,gain:0.8,pan:0,mute:false,solo:false,fadeIn:0.02,fadeOut:0.05,fx:'none',fxv:{}});
+    pushUndo();
+    addLayer({id:newTrackId(),name:'Layer '+n,gain:0.8,pan:0,mute:false,solo:false,fx:'none',fxv:{},clips:[{id:newTrackId(),src:'ovd:'+key,lock:false,at:+(startPos-lat).toFixed(3),trimIn:0,trimOut:0,fadeIn:0.02,fadeOut:0.05}]});
     toast('Layer added and lined up for '+Math.round(lat*1000)+' ms of delay'); if(ST.e.clean||ST.e.enhance) runClean();
   }catch(e){ toast('Couldn’t add that layer'); }
   renderStPanel();
@@ -436,19 +519,20 @@ async function recordLayer(){
 /* ---------- Panel events ---------- */
 $('.st-tabs').addEventListener('click',e=>{ const b=e.target.closest('[data-p]'); if(!b) return; ST.tab=b.dataset.p; renderStPanel(); });
 $('#stPanel').addEventListener('click',e=>{
-  const pk=e.target.closest('[data-pick]'); if(pk){ ST.e.sel=pk.dataset.pick; renderStPanel(); return; }
+  const pk=e.target.closest('[data-pick]'); if(pk){ ST.e.sel=pk.dataset.pick; ST.selClip=(selTrack().clips[0]||{}).id; renderStPanel(); return; }
   const f=e.target.closest('[data-f]'); if(f){ ST.e.filter=f.dataset.f; $$('[data-f]').forEach(x=>x.setAttribute('aria-pressed',String(x===f))); applyLook(); persistEdit(); return; }
-  const v=e.target.closest('[data-v]'); if(v){ const t=selTrack(); t.fx=v.dataset.v; t.fxv=fxDefaults(t.fx); dropChain(t.id); if(ST.ctx) ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); if(!ST.playing) stPlay(); persistEdit(); renderStPanel(); return; }
+  const v=e.target.closest('[data-v]'); if(v){ pushUndo(); const t=selTrack(); t.fx=v.dataset.v; t.fxv=fxDefaults(t.fx); dropChain(t.id); if(ST.ctx) ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); if(!ST.playing) stPlay(); persistEdit(); renderStPanel(); return; }
   if(e.target.closest('[data-fxreset]')){ const t=selTrack(); t.fxv=fxDefaults(t.fx); dropChain(t.id); ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); persistEdit(); renderStPanel(); return; }
   const x=e.target.closest('[data-x]'); if(x&&!x.disabled){ const k=x.dataset.x; ST.e[k]=!ST.e[k]; x.setAttribute('aria-checked',String(ST.e[k]));
     if(k==='clean'||k==='enhance'){ rebuildVoiceChain(); if(ST.e[k]) runClean(); renderStPanel(); } else applyLook();
     persistEdit(); return; }
-  const nd=e.target.closest('[data-nudge]'); if(nd){ const t=selTrack(); if(t.lock) return; t.at=+(t.at+(+nd.dataset.nudge)).toFixed(3); restartIfPlaying(); persistEdit(); renderStPanel(); return; }
-  const id=e.target.closest('button')&&e.target.closest('button').id;
-  if(id==='tkDup') dupTrack(); else if(id==='tkSplit') splitTrack(); else if(id==='tkDel') delTrack(); else if(id==='tkRec') recordLayer();
-  else if(id==='tkMute'||id==='tkSolo'){ const t=selTrack(), k=id==='tkMute'?'mute':'solo'; t[k]=!t[k]; restartIfPlaying(); persistEdit(); renderStPanel(); }
-  else if(id==='tkFx'){ ST.tab='voice'; renderStPanel(); }
+  const btn=e.target.closest('button'); const id=btn&&!btn.disabled&&btn.id;
+  if(id==='tkDup') dupLayer(); else if(id==='tkSplit') splitClip(); else if(id==='tkDel') delSelected(); else if(id==='tkRec') recordLayer();
+  else if(id==='tkUndo') undoEdit(); else if(id==='tkRedo') redoEdit(); else if(id==='tkMore') moreSheet();
+  else if(id==='tkVol'||id==='tkFade'){ const k=id==='tkVol'?'vol':'fade'; SUB=SUB===k?'':k; renderSub(); }
 });
+// one undo step per slider drag in the clip sub-panel
+$('#stPanel').addEventListener('pointerdown',e=>{ if(e.target.matches('#tkSub input[type=range]')) pushUndo(); });
 $('#stPanel').addEventListener('input',e=>{ const t=e.target, E=ST.e;
   if(t.id==='mxV'){ E.vVol=+t.value/100; t.nextElementSibling.textContent=t.value+'%'; }
   if(t.id==='mxM'){ E.mVol=+t.value/100; t.nextElementSibling.textContent=t.value+'%'; }
@@ -460,17 +544,15 @@ $('#stPanel').addEventListener('input',e=>{ const t=e.target, E=ST.e;
   if(t.dataset.tk){ const tr=selTrack(), k=t.dataset.tk, ch=ST.chains.get(tr.id); let val=+t.value;
     if(k==='gain'){ tr.gain=val/100; if(ch) ch.vol.gain.setTargetAtTime(tr.gain,ST.ctx.currentTime,0.02); t.nextElementSibling.textContent=t.value+'%'; }
     if(k==='pan'){ tr.pan=val/100; if(ch&&ch.pan.pan) ch.pan.pan.setTargetAtTime(tr.pan,ST.ctx.currentTime,0.02); t.nextElementSibling.textContent=panLbl(tr.pan); }
-    if(k==='fadeIn'||k==='fadeOut'){ tr[k]=val; t.nextElementSibling.textContent=val.toFixed(2)+'s'; }
-    if(k==='trimIn'||k==='trimOut'){ const len=trackLen(tr), other=k==='trimIn'?tr.trimOut:tr.trimIn; val=Math.min(val,Math.max(0,len-other-0.2)); tr[k]=val; t.value=val; t.nextElementSibling.textContent=val.toFixed(2)+'s'; drawLanes(); } }
-  if(t.id==='tkName'){ selTrack().name=t.value.trim()||'Track'; }
+  }
+  if(t.dataset.ck&&t.closest('#tkSub')){ const c=selClip(); if(c){ c[t.dataset.ck]=+t.value; t.nextElementSibling.textContent=(+t.value).toFixed(2)+'s'; drawLanes(); } }
   applyMix(); persistEdit(); });
 $('#stPanel').addEventListener('change',e=>{ const t=e.target;
   if(t.id==='stCleanAmt'||t.id==='stEnhAmt'){ if(t.id==='stEnhAmt') rebuildVoiceChain(); runClean(); }
   if(t.dataset.fxp){ const tr=selTrack(), ch=ST.chains.get(tr.id); if(ch&&ch.fx&&(ch.fx.rebuildOn||[]).includes(t.dataset.fxp)){ dropChain(tr.id); ST.chains.set(tr.id,buildTrackChain(tr)); restartIfPlaying(); } }
-  if(t.dataset.tk&&/fade|trim/.test(t.dataset.tk)) restartIfPlaying();
-  if(t.id==='tkName') renderStPanel(); });
+  if(t.dataset.ck) restartIfPlaying(); });
 
-const needsRender=()=>{ const E=ST.e; return E.filter!=='none'||E.tracks.length>1||E.tracks.some(t=>t.fx!=='none'||t.gain!==1||t.pan||t.fadeIn||t.fadeOut||t.trimIn||t.trimOut)||E.clean||E.enhance||ST.hasMusic||E.mirror||E.vignette||E.grain||E.watermark||(E.captions&&ST.meta.captions&&ST.meta.captions.length)||E.vVol!==1; };
+const needsRender=()=>{ const E=ST.e; if(ST.meta.mixed&&isUntouched()) return false; return E.filter!=='none'||E.tracks.length>1||E.tracks.some(t=>t.fx!=='none'||t.gain!==1||t.pan||t.clips.length!==1||t.clips.some(c=>c.fadeIn||c.fadeOut||c.trimIn||c.trimOut))||E.clean||E.enhance||ST.hasMusic||E.mirror||E.vignette||E.grain||E.watermark||(E.captions&&ST.meta.captions&&ST.meta.captions.length)||E.vVol!==1; };
 async function stRender(){
   if(!window.MediaRecorder||!stCanvas.captureStream){ toast('This device can’t render video. Saving the original instead.'); return saveRec(ST.blob,true); }
   if(ST.cleaning){ toast('Finishing the clean-up first…'); while(ST.cleaning) await new Promise(r=>setTimeout(r,200)); }
@@ -536,3 +618,6 @@ $('#stOriginal').onclick=()=>{ if(!ST.exporting) saveRec(ST.blob,true); };
 $('#stClose').onclick=()=>studioLeave();
 $('#rCancel').onclick=()=>{ ST.cancel=true; };
 document.addEventListener('visibilitychange',()=>{ if(document.hidden&&!$('#studio').hidden){ if(!ST.exporting) stPause(); if(ST.draftId){ ST.draftId&&saveDraftEdit(ST.draftId,{...ST.e}); SAVE.drafts(); } } });
+/* True when nothing has been changed from how the take was recorded. */
+function isUntouched(){ const E=ST.e, t=E.tracks;
+  return E.filter==='none'&&!E.clean&&!E.enhance&&!E.mirror&&!E.vignette&&!E.grain&&E.vVol===1&&Math.abs(E.mVol-(ST.meta.musicVol??.8))<0.01&&!E.musicNudge&&t.length===1&&t[0].fx==='none'&&t[0].gain===1&&!t[0].pan&&t[0].clips.length===1&&!t[0].clips[0].trimIn&&!t[0].clips[0].trimOut&&!t[0].clips[0].fadeIn&&!t[0].clips[0].fadeOut&&!E.captions; }

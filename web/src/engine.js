@@ -305,6 +305,7 @@ const ASR_MODES=[
   {model:'onnx-community/whisper-base_timestamped',device:'wasm',dtype:'q8',word:true},
   {model:'Xenova/whisper-tiny',device:'wasm',dtype:'q8',word:false}
 ];
+const asrModes=()=>ASR.modes||ASR_MODES;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function disposeASR(){ const p=ASR.pipe; ASR.pipe=null; ASR.loading=null; try{ if(p&&p.dispose) await p.dispose(); }catch(e){} await sleep(250); }
 async function loadASR(onStatus){
@@ -319,8 +320,8 @@ async function loadASR(onStatus){
     const files={}; const prog=p=>{ if(p&&p.status==='progress'&&p.file){ files[p.file]=[p.loaded||0,p.total||0]; let a=0,b=0; Object.values(files).forEach(([l,t])=>{ a+=l; b+=t; }); onStatus&&onStatus({stage:'model',p:b?a/b:0}); } };
     if(ASR.mode===0){ let gpu=false; if(!IS_MOBILE){ try{ gpu=!!(navigator.gpu&&await navigator.gpu.requestAdapter()); }catch(e){} } if(!gpu) ASR.mode=1; }
     let lastErr=null;
-    for(;ASR.mode<ASR_MODES.length;ASR.mode++){
-      const m=ASR_MODES[ASR.mode];
+    for(;ASR.mode<asrModes().length;ASR.mode++){
+      const m=asrModes()[ASR.mode];
       try{ ASR.pipe=await T.pipeline('automatic-speech-recognition',m.model,{device:m.device,dtype:m.dtype,progress_callback:prog}); ASR.word=m.word; ASR.device=m.device; return ASR.pipe; }
       catch(e){ lastErr=e; if(isNetErr(e)) throw e; }
     }
@@ -346,7 +347,7 @@ function idbModelCache(){
 const NEEDS_MODEL_CACHE=`(typeof caches==='undefined'||!self.isSecureContext)`;
 const ASR_WORKER_SRC=()=>`
 let T=null,pipe=null,mode=-1,word=false,device='';
-const MODES=${JSON.stringify(ASR_MODES)};
+let MODES=${JSON.stringify(ASR_MODES)}, MODES_KEY='';
 const isNet=e=>/fetch|network|Failed to load|NetworkError|offline|CORS|dynamically imported/i.test(String(e&&(e.message||e)));
 async function load(start){
   if(!T){ T=await import('${TJS_URL}'); T.env.allowLocalModels=false; if(${NEEDS_MODEL_CACHE}){ T.env.useBrowserCache=false; T.env.useCustomCache=true; T.env.customCache=(${idbModelCache.toString()})(); } try{ T.env.backends.onnx.wasm.proxy=false; T.env.backends.onnx.wasm.numThreads=(self.crossOriginIsolated?Math.min(4,navigator.hardwareConcurrency||2):1); }catch(e){} }
@@ -357,11 +358,12 @@ async function load(start){
     catch(e){ last=e; if(isNet(e)) throw e; } }
   throw last||new Error('Speech engine unavailable');
 }
-self.onmessage=async ev=>{ const {id,audio,start}=ev.data;
+self.onmessage=async ev=>{ const {id,audio,start,modes,gen}=ev.data;
   try{
+    const key=JSON.stringify(modes||MODES); if(modes&&key!==MODES_KEY){ if(pipe&&pipe.dispose){ try{ await pipe.dispose(); }catch(e){} } pipe=null; MODES=modes; MODES_KEY=key; }
     if(!pipe||mode!==start){ if(pipe&&pipe.dispose){ try{ await pipe.dispose(); }catch(e){} } pipe=null; postMessage({type:'status',stage:'lib'}); await load(start); }
     postMessage({type:'status',stage:'listen',device});
-    const out=await pipe(audio,{chunk_length_s:29,stride_length_s:5,return_timestamps:word?'word':true});
+    const out=await pipe(audio,{chunk_length_s:29,stride_length_s:5,return_timestamps:word?'word':true,...(gen||{})});
     postMessage({type:'result',id,out:{text:out.text,chunks:out.chunks},word,mode,device});
   }catch(e){ try{ if(pipe&&pipe.dispose) await pipe.dispose(); }catch(_){} pipe=null; postMessage({type:'error',id,msg:String(e&&(e.message||e)),net:isNet(e),mode}); }
 };`;
@@ -385,13 +387,13 @@ function workerRun(w,audio,start,onStatus){
     const onErr=ev=>{ cleanup(); ASRW_FAILED=true; try{ w.terminate(); }catch(e){} ASRW=null; const e=new Error('WORKER_FAILED'); e.worker=true; rej(e); };
     const cleanup=()=>{ w.removeEventListener('message',onMsg); w.removeEventListener('error',onErr); };
     w.addEventListener('message',onMsg); w.addEventListener('error',onErr);
-    const copy=audio.slice(); w.postMessage({id,audio:copy,start},[copy.buffer]);
+    const copy=audio.slice(); w.postMessage({id,audio:copy,start,modes:ASR.modes,gen:ASR.gen},[copy.buffer]);
   });
 }
 async function pickStartMode(){
-  if(ASR.mode>0) return;
+  if(ASR.mode>0&&ASR.modesKey===JSON.stringify(asrModes())) return; ASR.modesKey=JSON.stringify(asrModes());
   let gpu=false; if(!IS_MOBILE){ try{ gpu=!!(navigator.gpu&&await navigator.gpu.requestAdapter()); }catch(e){} }
-  ASR.mode=gpu?0:1;
+  const ms=asrModes(); ASR.mode=gpu?0:Math.max(0,ms.findIndex(m=>!m.gpu)); if(ASR.mode<0) ASR.mode=ms.length;
 }
 async function runASR(audio,onStatus){
   await pickStartMode();
@@ -405,7 +407,7 @@ async function runASR(audio,onStatus){
         if(e.net||isNetErr(e)) throw e;
         if(isSessionErr(e)&&!retriedSame){ retriedSame=true; await sleep(600); onStatus&&onStatus({stage:'retry',p:0}); continue; }
         retriedSame=false; ASR.mode=Math.max(ASR.mode,(e.mode??ASR.mode))+1;
-        if(ASR.mode>=ASR_MODES.length) break;
+        if(ASR.mode>=asrModes().length) break;
         onStatus&&onStatus({stage:'retry',p:0}); continue;
       }
     }
@@ -413,25 +415,31 @@ async function runASR(audio,onStatus){
     const pipe=await loadASR(onStatus);
     try{ if(ASR.T&&ASR.T.env.backends.onnx.wasm) ASR.T.env.backends.onnx.wasm.proxy=ASR.device!=='webgpu'; }catch(e){}
     onStatus&&onStatus({stage:'listen',p:0});
-    try{ return await pipe(audio,{chunk_length_s:29,stride_length_s:5,return_timestamps:ASR.word?'word':true}); }
+    try{ return await pipe(audio,{chunk_length_s:29,stride_length_s:5,return_timestamps:ASR.word?'word':true,...(ASR.gen||{})}); }
     catch(e){
       lastErr=e; if(isNetErr(e)) throw e;
       await disposeASR();
       if(isSessionErr(e)&&!retriedSame){ retriedSame=true; await sleep(600); onStatus&&onStatus({stage:'retry',p:0}); continue; }
       retriedSame=false; ASR.mode++;
-      if(ASR.mode>=ASR_MODES.length) break;
+      if(ASR.mode>=asrModes().length) break;
       onStatus&&onStatus({stage:'retry',p:0});
     }
   }
   throw lastErr||new Error('Transcription failed');
 }
-async function transcribeBlob(blob,onStatus){
+async function transcribeBlob(blob,onStatus,opts={}){
   if(ASR.busy){ const e=new Error('BUSY'); e.busy=true; throw e; }
   let done; ASR.busy=new Promise(r=>done=r);
+  const t0=performance.now();
   try{
+    const model=sttModel(opts.model);
+    if(ASR.modelId!==model.id){ ASR.modelId=model.id; ASR.modes=model.modes; ASR.mode=0; ASR.modesKey=''; await disposeASR(); }
+    // Telling Whisper the language avoids mis-detection on sung audio; "transcribe" keeps it from translating.
+    ASR.gen=opts.language&&opts.language!=='auto'?{language:opts.language,task:'transcribe'}:{task:'transcribe'};
     onStatus&&onStatus({stage:'decode',p:0});
     const buf=await decodeBlob(blob);
-    const audio=await toMono(buf,16000);
+    let audio=await toMono(buf,16000);
+    if(opts.vocalFocus&&buf.numberOfChannels>1){ onStatus&&onStatus({stage:'focus',p:0}); try{ audio=await vocalFocus(buf); }catch(e){} }
     const fade=16000*0.5; for(let i=0;i<fade&&i<audio.length;i++){ audio[i]*=i/fade; audio[audio.length-1-i]*=i/fade; }
     const out=await runASR(audio,onStatus);
   const chunks=(out&&out.chunks)||[];
@@ -440,7 +448,7 @@ async function transcribeBlob(blob,onStatus){
   else chunks.forEach(c=>{ const ws=lineWords(c.text), s=c.timestamp[0]??0, e=c.timestamp[1]??s+2, syl=ws.map(w=>Math.max(1,syllables(w))), tot=syl.reduce((a,b)=>a+b,0)||1; let acc=0; ws.forEach((w,k)=>{ const a=s+(e-s)*acc/tot; acc+=syl[k]; words.push({text:w,start:a,end:s+(e-s)*acc/tot}); }); });
   words=words.filter(w=>w.text&&w.text.trim()&&!/^\s*[\[(♪].*[\])♪]?\s*$/.test(w.text)).sort((a,b)=>a.start-b.start);
   for(let i=1;i<words.length;i++) if(words[i].start<words[i-1].start) words[i].start=words[i-1].start;
-    return {words,text:(out&&out.text)||'',duration:buf.duration,buf};
+    return {words,text:(out&&out.text)||'',duration:buf.duration,buf,model:model.id,language:opts.language||'auto',seconds:(performance.now()-t0)/1000};
   } finally { ASR.busy=null; done(); }
 }
 

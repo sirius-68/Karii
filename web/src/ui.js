@@ -432,7 +432,8 @@ function timingGroup(s){
       <div class="grp">
         <div class="grow"><div class="lbl"><b id="syncStatus"></b><small>Tap along — taps snap to vocal onsets</small></div><button class="btn white sm" data-act="sync" data-id="${s.id}" id="syncBtn">Tap sync</button></div>
         <div class="grow"><div class="lbl"><b>Auto-sync</b><small>AI aligns your ${lbl} word by word · Quick works offline</small></div><div class="acts"><button class="btn sm" data-act="auto-quick" data-id="${s.id}">Quick</button><button class="btn white sm" data-act="auto-ai" data-id="${s.id}">${ic('sparkles','xs')}AI</button></div></div>
-        <div class="grow"><div class="lbl"><b>Generate ${lbl} from audio</b><small>Transcribes the ${s.kind==='line'?'clip':'song'} with Whisper, with timings</small></div><button class="btn sm" data-act="auto-gen" data-id="${s.id}">${ic('wand-sparkles','xs')}Generate</button></div>
+        <div class="grow"><div class="lbl"><b>Generate ${lbl} from audio</b><small>Transcribes the ${s.kind==='line'?'clip':'song'} with timings · choose language and model</small></div><button class="btn sm" data-act="auto-gen" data-id="${s.id}">${ic('wand-sparkles','xs')}Generate</button></div>
+        ${s.genText?`<div class="grow"><div class="lbl"><b>AI lyrics</b><small>${esc(sttModel(s.stt&&s.stt.model).name)} · ${esc(sttLangName(s.stt&&s.stt.language))}${s.review&&s.review.length?' · '+s.review.length+' line'+(s.review.length>1?'s':'')+' to check':''}</small></div><div class="acts">${s.review&&s.review.length?`<button class="btn sm" data-act="stt-review" data-id="${s.id}">Review</button>`:''}<button class="btn sm" data-act="stt-accuracy" data-id="${s.id}">Check accuracy</button></div></div>`:''}
         <div class="grow"><div class="lbl"><b>Fine-tune</b><small>Drag lines on the waveform</small></div><button class="btn sm" data-act="timeline" data-id="${s.id}" id="tlBtn">${ic('audio-waveform','xs')}Open</button></div>
         <div class="grow"><div class="lbl"><b>Lyrics file</b><small>.lrc with word timing (A2) import and export</small></div><div class="acts"><button class="btn sm" data-act="lrc-import">Import</button><button class="btn sm" data-act="lrc-export" data-id="${s.id}" id="lrcExp">Export</button></div></div>
         <div class="grow"><div class="lbl"><b>Clear timing</b></div><button class="btn sm" data-act="sync-clear" data-id="${s.id}" id="syncClr">Clear</button></div>
@@ -537,6 +538,12 @@ function openSettings(){ push('settings',el=>{
       ${tog('mirrorCam',st.mirrorCam,'Mirror front camera preview','Recordings are never mirrored')}
       ${tog('backdrop',st.backdrop,'Dim the camera behind text')}
       <div class="setrow"><div class="lbl">Countdown</div><div class="chips">${[0,3,5].map(v=>`<button class="chip" data-act="set-cd" data-v="${v}" aria-pressed="${st.countdown===v}">${v?v+'s':'Off'}</button>`).join('')}</div></div>
+    </div>
+    <div class="h3 pad">Lyrics AI</div>
+    <div class="card" style="margin:0 20px">
+      <button class="setrow" data-act="stt-models"><div class="lbl">Models<small>Default: ${esc(sttModel(S.settings.sttModel).name)} · language: ${esc(sttLangName(S.settings.sttLang||'auto'))}</small></div>${ic('chevron-right','sm')}</button>
+      <div class="setrow"><div class="lbl">Models in testing<small>Let me choose models that work but aren’t benchmarked yet</small></div><button class="toggle" role="switch" data-act="stt-testing" aria-checked="${!!S.settings.sttTesting}" aria-label="Models in testing"></button></div>
+      <button class="setrow" data-act="stt-bench"><div class="lbl">Accuracy results<small>Word and character error rates measured on your songs</small></div>${ic('chevron-right','sm')}</button>
     </div>
     <div class="h3 pad">Sync engine</div>
     <div class="card" style="margin:0 20px">
