@@ -268,6 +268,7 @@ async function placeOnBeat(s,LP){
   else if(inst&&inst.bpm){ bar=60*bpb/inst.bpm; t0=0.05+LP.intro*bar; }
   else if(an&&an.downbeats.length>4){ downs=an.downbeats; bar=60*bpb/an.bpm; }
   else { bar=2.4; t0=LP.intro*bar; }
+  s.timedText=lyricLines(bodyOf(s)).join('\n');
   s.times=lines.map((_,i)=>{ if(downs){ const k=LP.intro+i*LP.per, k0=Math.floor(k), fr=k-k0; const base=k0<downs.length?downs[k0]:downs[downs.length-1]+(k0-downs.length+1)*bar; return +(base+fr*bar).toFixed(3); } return +(t0+i*LP.per*bar).toFixed(3); });
   s.ends=s.times.map((t,i)=>+(Math.min((s.times[i+1]??t+LP.per*bar)-0.1,t+LP.per*bar*0.92)).toFixed(3));
   s.wt=lines.map((l,i)=>distributeWords(l,s.times[i],s.ends[i],an&&an.peaks));

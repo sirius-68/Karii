@@ -924,3 +924,15 @@ table.bench th{color:var(--muted);font-weight:500}
 .srcs .src{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:14px;background:var(--s2);font-size:.86rem;line-height:1.4;color:var(--ink-2)}
 .srcs .src svg{flex:none;margin-top:2px;color:var(--muted)}
 .srcs .src b{color:var(--ink)}
+
+/* ================= Editor: lyric overlay controls ================= */
+.lyr-card .lyr-body{padding:4px 18px 14px;border-top:1px solid var(--line)}
+.lyr-card .fld{margin:10px 0}
+.lyr-row{display:grid;grid-template-columns:72px 1fr;align-items:center;gap:8px;margin:8px 0;font-size:.9rem}
+.lyr-chips{display:flex;flex-wrap:wrap;gap:6px}
+.lyr-chips .chip{min-height:36px}
+.lyr-chips .chip.sw{width:36px;padding:0;display:grid;place-items:center}
+.lyr-chips .chip.sw i{width:20px;height:20px;border-radius:50%;background:var(--sw);box-shadow:0 0 0 1px rgba(255,255,255,.25)}
+.lyr-chips .chip.sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--violet)}
+.lyr-card .tlink{margin-top:4px}
+.lyr-chips .chip:not(.sw){padding:0 12px}

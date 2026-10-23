@@ -15,7 +15,41 @@
       lead, countdown dots before late entries.
    ===================================================================== */
 let AC=null;
-function ac(){ if(!AC){ const C=window.AudioContext||window.webkitAudioContext; AC=new C({latencyHint:'interactive'}); } return AC; }
+function ac(){ if(!AC){ const C=window.AudioContext||window.webkitAudioContext; AC=new C({latencyHint:'interactive'}); ACH.reset(); } return AC; }
+/* ---------- Audio engine health ----------
+   On some Android phones, opening and closing the microphone switches the audio hardware
+   between call mode and media mode. The Web Audio context can keep running at the old
+   rate afterwards: music then plays too fast and distorted, or its clock stops while the
+   sound carries on (lyrics and progress bars freeze). The context's clock is checked
+   against the wall clock while something plays; if they disagree, the context is replaced
+   and playback continues from the same position. */
+const ACH={samples:[],resets:0,listeners:new Set(),lastReset:0,
+  reset(){ this.samples=[]; },
+  check(){
+    if(!AC||AC.state!=='running'||document.hidden) { this.samples=[]; return; }
+    if(!player.on||typeof REC!=='undefined'&&REC.on) { this.samples=[]; return; }
+    const now=performance.now(); this.samples.push([now,AC.currentTime]); while(this.samples.length&&now-this.samples[0][0]>2600) this.samples.shift();
+    const a=this.samples[0], b=this.samples[this.samples.length-1], wall=(b[0]-a[0])/1000;
+    if(wall<1.8) return;
+    const ratio=(b[1]-a[1])/wall;
+    if(ratio>0.85&&ratio<1.18) return;
+    if(now-this.lastReset<8000) return;
+    this.rebuild(ratio<0.05?'stalled':'rate '+ratio.toFixed(2));
+  },
+  rebuild(why){
+    const pos=player.on?player.time():player.off, was=player.on, wasRate=player.rate;
+    // where playback really is: wall-clock time since the last sample we trust
+    try{ player.pause(); }catch(e){}
+    player.off=Math.max(0,Math.min(player.buf?player.buf.duration:pos,pos));
+    const old=AC; AC=null; player.gain=null; this.samples=[]; this.lastReset=performance.now(); this.resets++;
+    try{ old&&old.close(); }catch(e){}
+    ac(); this.listeners.forEach(f=>{ try{ f(why); }catch(e){} });
+    player.rate=wasRate; if(was) player.play();
+    console.warn('[audio] engine restarted:',why);
+  },
+  onReset(f){ this.listeners.add(f); }
+};
+setInterval(()=>ACH.check(),400);
 const outLat=()=>AC?Math.min(0.5,(AC.outputLatency||0)+(AC.baseLatency||0)):0;
 const VISUAL_LEAD=0.016;
 let extraLatency=()=>0; // replaced by the audio route module (Bluetooth etc.)
@@ -51,7 +85,9 @@ const player={
     if(!this.hasAudio) return this.vPlaying?Math.min(this.vDur,this.vOff+(performance.now()-this.vStart)/1000*this.rate):this.vOff;
     if(!this.on) return this.off;
     const c=ac(); let now=null, lat=0;
-    if(c.getOutputTimestamp){ try{ const ts=c.getOutputTimestamp(); if(ts&&ts.contextTime>0&&ts.performanceTime>0){ const ahead=(performance.now()-ts.performanceTime)/1000; if(ahead>=0&&ahead<0.5) now=ts.contextTime+ahead; } }catch(e){} }
+    // The hardware timestamp is only trusted while it agrees with the context clock: on some
+    // devices it freezes after an audio-route change, which used to stop lyrics and progress bars.
+    if(c.getOutputTimestamp){ try{ const ts=c.getOutputTimestamp(); if(ts&&ts.contextTime>0&&ts.performanceTime>0){ const ahead=(performance.now()-ts.performanceTime)/1000, est=ts.contextTime+ahead, lag=c.currentTime-est; if(ahead>=0&&ahead<0.5&&lag>-0.05&&lag<0.6) now=est; } }catch(e){} }
     if(now==null){ now=c.currentTime; lat=outLat(); }
     let t=this.off+(now-this.t0-lat-extraLatency())*this.rate+VISUAL_LEAD;
     t=Math.max(0,Math.min(this.buf.duration,t));

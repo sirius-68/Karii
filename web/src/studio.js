@@ -47,6 +47,15 @@ function impulse(c,sec,decay){ const sr=c.sampleRate,len=sec*sr|0,b=c.createBuff
    trims, fades, volume, pan and its own effect. Edits are a small settings
    object saved to the draft as you go; the original audio is never changed.
    --------------------------------------------------------------------- */
+/* Lyrics are an overlay on the take, never burned into the recording: the camera footage
+   is kept as recorded and the lyrics are drawn on top in the preview and in the export,
+   with the same code, so they always match. */
+const LYR_DEFAULT={size:1,y:0.84,color:'#FFFFFF',font:'sans',bg:'box'};
+const LYR_COLORS=[['#FFFFFF','White'],['#FDE047','Yellow'],['#F9A8D4','Pink'],['#67E8F9','Cyan'],['#86EFAC','Green']];
+const LYR_FONTS=[['sans','Clean'],['serif','Serif'],['rounded','Friendly'],['mono','Mono']];
+const LYR_BGS=[['box','Box'],['outline','Outline'],['shadow','Shadow'],['none','None']];
+const lyrStyle=()=>({...LYR_DEFAULT,...(ST.e&&ST.e.lyr||{})});
+function lyrFont(f){ return f==='serif'?"'Lora', Georgia, serif":f==='mono'?"'JetBrains Mono', ui-monospace, monospace":f==='rounded'?"'Atkinson Hyperlegible', system-ui, sans-serif":uiFont(); }
 const EDIT_DEFAULT={filter:'none',vVol:1,mVol:.8,mirror:false,vignette:false,grain:false,captions:true,watermark:true,clean:true,cleanAmt:.5,enhance:true,enhanceAmt:.5,musicNudge:0,tracks:null,sel:'main'};
 const mainTrack=fx=>({id:'main',name:'Main vocal',gain:1,pan:0,mute:false,solo:false,fx:fx||'none',fxv:fxDefaults(fx||'none'),lock:true,clips:[{id:'mainc',src:'take',lock:true,at:0,trimIn:0,trimOut:0,fadeIn:0,fadeOut:0}]});
 /* Older drafts stored one clip per track; turn each into a layer with one clip. */
@@ -151,7 +160,7 @@ async function openStudio(blob,meta,opts={}){
   // Takes recorded with the in-app mixer already have a processed voice; don't process twice.
   // Natural recordings with music in them aren't processed by default either: the offline cleaner is for voice.
   const fresh=(meta.mixed||(meta.mode&&meta.mode!=='mic')||meta.ext)&&!opts.edit?{clean:false,enhance:false}:{};
-  ST.e={...EDIT_DEFAULT,mVol:meta.musicVol??.8,captions:!!(meta.captions&&meta.captions.length),...fresh,...ed};
+  ST.e={...EDIT_DEFAULT,mVol:meta.musicVol??.8,captions:!!(meta.captions&&meta.captions.length)&&S.settings.lyrShow!==false,lyr:{...LYR_DEFAULT,...(S.settings.lyrStyle||{})},...fresh,...ed};
   if(!Array.isArray(ST.e.tracks)||!ST.e.tracks.length) ST.e.tracks=[mainTrack(ed.voice)];
   ST.e.tracks=ST.e.tracks.map(toLayer);
   if(!trackById(ST.e.sel)) ST.e.sel=ST.e.tracks[0].id;
@@ -236,25 +245,34 @@ function drawFrame(){
 }
 /* Returns the index of the caption shown at time t, or -1. */
 function capAt(t){ const caps=ST.meta&&ST.meta.captions; if(!(ST.e.captions&&caps&&caps.length)) return -1; let i=-1; for(let k=0;k<caps.length;k++){ if(caps[k].t<=t) i=k; else break; } return i>=0&&t<(caps[i+1]?caps[i+1].t:caps[i].e+2)?i:-1; }
-function drawCaptions(g,w,h,t){
+function drawCaptions(g,w,h,t,opt={}){
   const caps=ST.meta&&ST.meta.captions;
-  if(ST.e.captions&&caps&&caps.length){
-    let i=-1; for(let k=0;k<caps.length;k++){ if(caps[k].t<=t) i=k; else break; }
-    if(i>=0 && t<(caps[i+1]?caps[i+1].t:caps[i].e+2)){
-      const c=caps[i], fs=Math.round(Math.min(w,h)*.055);
-      let f=clamp01((t-c.t)/Math.max(.3,c.e-c.t));
-      if(c.w&&c.w.length){ const ws=c.text.split(/\s+/).filter(Boolean); if(ws.length===c.w.length){ const L=ws.reduce((a,x)=>a+x.length+1,0); let acc=0; ws.forEach((x,k)=>{ acc+=(x.length+1)*clamp01((t-c.w[k].s)/Math.max(.05,c.w[k].e-c.w[k].s)); }); f=acc/L; } }
-      g.font=`700 ${fs}px ${uiFont()}`; g.textAlign='center'; g.textBaseline='middle';
-      const lines=wrapText(g,c.text,w*.84), lh=fs*1.25, total=lines.length*lh, y0=h*.86-total/2;
-      const bw=Math.min(w*.92,Math.max(...lines.map(l=>g.measureText(l).width))+fs*1.2);
-      g.fillStyle='rgba(0,0,0,.5)'; roundRectPath(g,(w-bw)/2,y0-fs*.45,bw,total+fs*.3,fs*.5); g.fill();
-      const allW=lines.reduce((a,l)=>a+g.measureText(l).width,0); let done=f*allW;
-      lines.forEach((l,j)=>{ const y=y0+j*lh+lh/2-fs*.1, lw=g.measureText(l).width, x0=w/2-lw/2;
-        g.fillStyle='rgba(255,255,255,.55)'; g.fillText(l,w/2,y);
-        const p=Math.max(0,Math.min(lw,done)); done-=lw;
-        if(p>0){ g.save(); g.beginPath(); g.rect(x0,y-fs,p,fs*2); g.clip(); g.fillStyle='#fff'; g.fillText(l,w/2,y); g.restore(); } });
-    }
-  }
+  if(!(caps&&caps.length)||!(ST.e.captions||opt.force)) return null;
+  let i=-1; for(let k=0;k<caps.length;k++){ if(caps[k].t<=t) i=k; else break; }
+  const live=i>=0&&t<(caps[i+1]?caps[i+1].t:caps[i].e+2);
+  if(!live){ if(!opt.ghost) return null; i=Math.max(0,Math.min(caps.length-1,i<0?0:i+1)); }
+  const L=lyrStyle(), c=caps[i];
+  // readable default: about 4% of the short side (a 1080-wide video gets ~43 px), adjustable 60–160%
+  const fs=Math.max(10,Math.round(Math.min(w,h)*0.04*Math.max(0.6,Math.min(1.6,L.size))));
+  let f=live?clamp01((t-c.t)/Math.max(.3,c.e-c.t)):0;
+  if(live&&c.w&&c.w.length){ const ws=c.text.split(/\s+/).filter(Boolean); if(ws.length===c.w.length){ const tot=ws.reduce((a,x)=>a+x.length+1,0); let acc=0; ws.forEach((x,k)=>{ acc+=(x.length+1)*clamp01((t-c.w[k].s)/Math.max(.05,c.w[k].e-c.w[k].s)); }); f=acc/tot; } }
+  g.save(); g.font=`700 ${fs}px ${lyrFont(L.font)}`; g.textAlign='center'; g.textBaseline='middle';
+  const lines=wrapText(g,c.text,w*.86).slice(0,2), lh=fs*1.28, total=lines.length*lh;
+  const padY=fs*.42, safe=Math.min(w,h)*.05;
+  let yc=h*L.y; yc=Math.max(safe+total/2+padY,Math.min(h-safe-total/2-padY,yc));
+  const y0=yc-total/2, bw=Math.min(w*.94,Math.max(...lines.map(l=>g.measureText(l).width))+fs*1.1);
+  if(opt.ghost) g.globalAlpha=.75;
+  if(L.bg==='box'){ g.fillStyle='rgba(0,0,0,.5)'; roundRectPath(g,(w-bw)/2,y0-padY,bw,total+padY*2,fs*.45); g.fill(); }
+  const allW=lines.reduce((a,l)=>a+g.measureText(l).width,0); let done=f*allW;
+  const sung=L.color, unsung=L.color.toUpperCase()==='#FFFFFF'?'rgba(255,255,255,.55)':'rgba(255,255,255,.72)';
+  lines.forEach((l,j)=>{ const y=y0+j*lh+lh/2, lw=g.measureText(l).width, x0=w/2-lw/2;
+    const paint=col=>{ if(L.bg==='outline'){ g.lineJoin='round'; g.lineWidth=Math.max(2,fs*.16); g.strokeStyle='rgba(0,0,0,.85)'; g.strokeText(l,w/2,y); }
+      if(L.bg==='shadow'){ g.shadowColor='rgba(0,0,0,.85)'; g.shadowBlur=fs*.35; g.shadowOffsetY=fs*.06; } g.fillStyle=col; g.fillText(l,w/2,y); g.shadowBlur=0; g.shadowOffsetY=0; };
+    paint(unsung);
+    const pw=Math.max(0,Math.min(lw,done)); done-=lw;
+    if(pw>0){ g.save(); g.beginPath(); g.rect(x0-fs,y-fs,pw+fs,fs*2); g.clip(); paint(sung); g.restore(); } });
+  g.restore();
+  return {y0:y0-padY,y1:y0+total+padY,x0:(w-bw)/2,x1:(w+bw)/2,yc};
 }
 function drawMark(g,w,h){ { const fs=Math.round(Math.min(w,h)*.028); g.font=`600 ${fs}px ${uiFont()}`; g.textAlign='right'; g.textBaseline='bottom'; g.fillStyle='rgba(255,255,255,.75)'; g.shadowColor='rgba(0,0,0,.5)'; g.shadowBlur=6; g.fillText('● Lectern',w-fs*1.1,h-fs*1.1); g.shadowBlur=0; }
 }
@@ -276,16 +294,21 @@ function applyLook(){
   $('#stMark').hidden=!ST.e.watermark;
   drawCapLayer(true);
 }
-const CAPL={last:-2,at:0};
+const CAPL={last:-2,at:0,box:null,drag:null};
 function drawCapLayer(force){
   const cv=$('#stCap'); if(!cv) return;
   const t=stNow(), i=capAt(t), now=performance.now();
-  if(!force&&i===-1&&CAPL.last===-1) return;
+  if(!force&&i===-1&&CAPL.last===-1&&!CAPL.drag) return;
   if(!force&&now-CAPL.at<33) return;
   CAPL.at=now; CAPL.last=i;
   const r=cv.getBoundingClientRect(), dpr=Math.min(2,devicePixelRatio||1), W=Math.max(1,Math.round(r.width*dpr)), H=Math.max(1,Math.round(r.height*dpr));
   if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
-  const g=cv.getContext('2d'); g.clearRect(0,0,W,H); if(i>=0) drawCaptions(g,W,H,t);
+  const g=cv.getContext('2d'); g.clearRect(0,0,W,H);
+  // while styling the lyrics with the video paused, show the nearest line so changes are visible
+  const ghost=ST.tab==='extras'&&!ST.playing&&ST.e.captions;
+  if(i>=0||ghost) CAPL.box=drawCaptions(g,W,H,t,{ghost}); else CAPL.box=null;
+  if(CAPL.drag){ g.save(); g.strokeStyle='rgba(255,255,255,.55)'; g.setLineDash([6*dpr,6*dpr]); g.lineWidth=dpr; [0.12,0.5,0.84].forEach(y=>{ g.beginPath(); g.moveTo(0,H*y); g.lineTo(W,H*y); g.stroke(); });
+    const m=Math.min(W,H)*.05; g.strokeStyle='rgba(253,224,71,.5)'; g.strokeRect(m,m,W-2*m,H-2*m); g.restore(); }
 }
 /* Keep the video on the audio clock without seeking: speed it up or slow it down by up
    to 10% until it catches up. Only a large gap (after a stall) jumps, at most every 1.5 s. */
@@ -305,6 +328,7 @@ if(HAS_RVFC) stVideo.requestVideoFrameCallback(onVideoFrame);
 function stLoop(){
   cancelAnimationFrame(ST.raf);
   const step=()=>{ if($('#studio').hidden&&!ST.exporting) return;
+    stHealth();
     const t=stNow();
     if(ST.playing){
       if(t>=ST.dur-0.03){ if(ST.exporting){ ST.pos=ST.dur; } else { stPause(); ST.pos=0; try{ stVideo.currentTime=0; }catch(e){} } }
@@ -316,6 +340,19 @@ function stLoop(){
     if(ST.exporting){ const p=Math.round(clamp01(t/(ST.dur||1))*100); $('#rRing').style.setProperty('--p',p); $('#rPct').textContent=p+'%'; }
     ST.raf=requestAnimationFrame(step); };
   ST.raf=requestAnimationFrame(step);
+}
+/* Same check as the stage player: if the editor's audio clock runs at the wrong speed or
+   stops (an audio-route change on some phones), rebuild the editor's audio graph. */
+const STH={a:null,last:0};
+function stHealth(){
+  if(!ST.ctx||!ST.playing||ST.exporting||ST.mode!=='buffer'||document.hidden){ STH.a=null; return; }
+  const now=performance.now(); if(!STH.a){ STH.a=[now,ST.ctx.currentTime]; return; }
+  const wall=(now-STH.a[0])/1000; if(wall<2) return;
+  const ratio=(ST.ctx.currentTime-STH.a[1])/wall; STH.a=[now,ST.ctx.currentTime];
+  if(ratio>0.85&&ratio<1.18||now-STH.last<8000) return;
+  STH.last=now; const t=stNow(); stPause(); console.warn('[studio] audio restarted, rate',ratio.toFixed(2));
+  try{ ST.ctx.close(); }catch(e){} ST.ctx=null; [...ST.chains.keys()].forEach(k=>ST.chains.delete(k));
+  if(ensureStudioGraph()){ rebuildChains(); applyMix(); ST.pos=t; stPlay(); }
 }
 stVideo.addEventListener('seeked',()=>{ if(!ST.playing){ drawCapLayer(true); if(ST.tab==='tracks') moveLaneHead(ST.pos); } });
 $('#stPP').onclick=()=>{ if(ST.exporting) return; ST.playing?stPause():stPlay(); };
@@ -330,6 +367,8 @@ const fxName=id=>(FXMAP[id]||FXMAP.none).name;
 function trackPicker(){ const tr=ST.e.tracks; if(tr.length<2) return ''; return `<div class="trk-pick">${tr.map(t=>`<button class="chip" data-pick="${t.id}" aria-pressed="${t.id===ST.e.sel}">${esc(t.name)}</button>`).join('')}</div>`; }
 function renderStPanel(){
   $$('.st-tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.p===ST.tab)));
+  // karaoke takes: the last tab is where the lyric overlay is controlled
+  { const xb=$('.st-tabs [data-p="extras"]'), cap=!!(ST.meta&&ST.meta.captions&&ST.meta.captions.length); if(xb&&xb.dataset.cap!==String(cap)){ xb.dataset.cap=String(cap); xb.innerHTML=ic(cap?'captions':'sparkles','sm')+(cap?'Lyrics':'Extras'); } }
   const p=$('#stPanel'), E=ST.e;
   if(ST.tab==='filters'){
     p.innerHTML=`<div class="fthumbs">${FILTERS.map(f=>`<button class="fth" data-f="${f.id}" aria-pressed="${E.filter===f.id}"><canvas width="72" height="96"></canvas>${esc(f.name)}</button>`).join('')}</div>${FILTER_OK?'':'<p class="hint pad">This device can’t apply colour filters to video, so only tints and extras will show.</p>'}`;
@@ -366,7 +405,21 @@ function renderStPanel(){
       <p class="hint pad">Per-track volume and pan are in Tracks.</p>`;
   } else {
     const tg=(k,label,sub,dis)=>`<div class="setrow" ${dis?'style="opacity:.4"':''}><div class="lbl">${label}${sub?`<small>${sub}</small>`:''}</div><button class="toggle" role="switch" data-x="${k}" aria-checked="${!!E[k]}" ${dis?'disabled':''} aria-label="${label}"></button></div>`;
-    p.innerHTML=`<div class="card" style="margin:0 20px">${tg('captions','Lyric captions','Burns the karaoke line into the video',!(ST.meta.captions&&ST.meta.captions.length))}${tg('mirror','Mirror video','Flip left and right')}${tg('vignette','Vignette','Darkens the edges')}${tg('grain','Film grain')}${tg('watermark','Lectern watermark')}</div>`;
+    const hasCaps=!!(ST.meta.captions&&ST.meta.captions.length), L=lyrStyle(), on=hasCaps&&E.captions;
+    const chips=(key,list,cur,sw)=>`<div class="chips lyr-chips" role="radiogroup">${list.map(([v,l])=>`<button class="chip${sw?' sw':''}" data-lyr="${key}" data-lv="${v}" aria-pressed="${cur===v}" aria-label="${l}" ${sw?`style="--sw:${v}"`:''}>${sw?'<i></i>':''}${sw?'':l}</button>`).join('')}</div>`;
+    p.innerHTML=`<div class="h3" style="margin:0 20px 8px">Lyrics on video</div>
+      <div class="card lyr-card" style="margin:0 20px">
+        ${tg('captions','Show lyrics',hasCaps?'An overlay on top of your take. Hiding it doesn’t change the recording or delete the lyrics.':'Only for karaoke takes',!hasCaps)}
+        ${on?`<div class="lyr-body">
+          <label class="fld">Size <input type="range" id="lyrSize" min="60" max="160" step="5" value="${Math.round(L.size*100)}" aria-label="Lyric size"><output>${Math.round(L.size*100)}%</output></label>
+          <div class="lyr-row"><span>Position</span>${chips('pos',[['0.12','Top'],['0.5','Middle'],['0.84','Bottom']],[0.12,0.5,0.84].find(v=>Math.abs(v-L.y)<0.005)?String([0.12,0.5,0.84].find(v=>Math.abs(v-L.y)<0.005)):'')}</div>
+          <p class="hint" style="margin:-2px 0 10px">Or drag the lyrics on the preview. They snap to guides and stay inside safe margins.</p>
+          <div class="lyr-row"><span>Colour</span>${chips('color',LYR_COLORS,L.color,true)}</div>
+          <div class="lyr-row"><span>Font</span>${chips('font',LYR_FONTS,L.font)}</div>
+          <div class="lyr-row"><span>Backing</span>${chips('bg',LYR_BGS,L.bg)}</div>
+          <button class="tlink" id="lyrReset">Reset lyric style</button></div>`:''}
+      </div>
+      <div class="card" style="margin:14px 20px 0">${tg('mirror','Mirror video','Flip left and right')}${tg('vignette','Vignette','Darkens the edges')}${tg('grain','Film grain')}${tg('watermark','Lectern watermark')}</div>`;
   }
 }
 const fmtParam=(x,q)=>(Math.abs(q.step)<1?(+x).toFixed(1):Math.round(x))+q.unit;
@@ -555,8 +608,23 @@ async function toggleCleanMusic(){
   applyMix(); restartIfPlaying(); persistEdit(); renderStPanel();
 }
 
+/* Lyric style changes apply to the preview at once, are saved with the draft, and become
+   the default for the next take. */
+function setLyr(patch){ ST.e.lyr={...lyrStyle(),...patch}; S.settings.lyrStyle={...ST.e.lyr}; SAVE.settings(); drawCapLayer(true); persistEdit(); }
+{ const prev=$('#stPrev'); let suppress=false;
+  prev.addEventListener('pointerdown',e=>{
+    if(ST.tab!=='extras'||!ST.e.captions||ST.exporting||!CAPL.box) return;
+    const cv=$('#stCap'), r=cv.getBoundingClientRect(), sy=cv.height/r.height, y=(e.clientY-r.top)*sy, x=(e.clientX-r.left)*(cv.width/r.width), b=CAPL.box;
+    if(y<b.y0-20||y>b.y1+20||x<b.x0-20||x>b.x1+20) return;
+    e.preventDefault(); e.stopPropagation(); suppress=true; CAPL.drag={dy:b.yc-y,h:cv.height,r,sy}; prev.setPointerCapture(e.pointerId); drawCapLayer(true); },true);
+  prev.addEventListener('pointermove',e=>{ const d=CAPL.drag; if(!d) return; let yf=((e.clientY-d.r.top)*d.sy+d.dy)/d.h;
+    for(const gd of [0.12,0.5,0.84]) if(Math.abs(yf-gd)<0.025) yf=gd; ST.e.lyr={...lyrStyle(),y:Math.max(0.06,Math.min(0.94,+yf.toFixed(3)))}; drawCapLayer(true); });
+  const end=()=>{ if(!CAPL.drag) return; CAPL.drag=null; setLyr({}); renderStPanel(); };
+  prev.addEventListener('pointerup',end); prev.addEventListener('pointercancel',end);
+  prev.addEventListener('click',e=>{ if(suppress){ suppress=false; e.stopPropagation(); e.preventDefault(); } },true); }
+
 /* ---------- Panel events ---------- */
-$('.st-tabs').addEventListener('click',e=>{ const b=e.target.closest('[data-p]'); if(!b) return; ST.tab=b.dataset.p; renderStPanel(); });
+$('.st-tabs').addEventListener('click',e=>{ const b=e.target.closest('[data-p]'); if(!b) return; ST.tab=b.dataset.p; renderStPanel(); drawCapLayer(true); });
 $('#stPanel').addEventListener('click',e=>{
   const pk=e.target.closest('[data-pick]'); if(pk){ ST.e.sel=pk.dataset.pick; ST.selClip=(selTrack().clips[0]||{}).id; renderStPanel(); return; }
   const f=e.target.closest('[data-f]'); if(f){ ST.e.filter=f.dataset.f; $$('[data-f]').forEach(x=>x.setAttribute('aria-pressed',String(x===f))); applyLook(); persistEdit(); return; }
@@ -565,8 +633,11 @@ $('#stPanel').addEventListener('click',e=>{
   const x=e.target.closest('[data-x]'); if(x&&!x.disabled){ const k=x.dataset.x; ST.e[k]=!ST.e[k]; x.setAttribute('aria-checked',String(ST.e[k]));
     if(k==='clean'||k==='enhance'){ rebuildVoiceChain(); if(ST.e[k]) runClean(); renderStPanel(); }
     else if(k==='addClean'){ toggleCleanMusic(); }
+    else if(k==='captions'){ S.settings.lyrShow=!!ST.e.captions; SAVE.settings(); applyLook(); renderStPanel(); }
     else applyLook();
     persistEdit(); return; }
+  const ly=e.target.closest('[data-lyr]'); if(ly){ const k=ly.dataset.lyr, v=ly.dataset.lv; setLyr(k==='pos'?{y:+v}:{[k]:v}); renderStPanel(); return; }
+  if(e.target.closest('#lyrReset')){ ST.e.lyr={...LYR_DEFAULT}; S.settings.lyrStyle={...LYR_DEFAULT}; SAVE.settings(); drawCapLayer(true); persistEdit(); renderStPanel(); return; }
   const btn=e.target.closest('button'); const id=btn&&!btn.disabled&&btn.id;
   if(id==='tkDup') dupLayer(); else if(id==='tkSplit') splitClip(); else if(id==='tkDel') delSelected(); else if(id==='tkRec') recordLayer();
   else if(id==='tkUndo') undoEdit(); else if(id==='tkRedo') redoEdit(); else if(id==='tkMore') moreSheet();
@@ -579,6 +650,7 @@ $('#stPanel').addEventListener('input',e=>{ const t=e.target, E=ST.e;
   if(t.id==='mxM'){ E.mVol=+t.value/100; t.nextElementSibling.textContent=t.value+'%'; }
   if(t.id==='mxN'){ E.musicNudge=+t.value/1000; t.nextElementSibling.textContent=(E.musicNudge>0?'+':'')+t.value+' ms'; restartIfPlaying(); }
   if(t.id==='stCleanAmt'){ E.cleanAmt=+t.value/100; t.nextElementSibling.textContent=t.value+'%'; }
+  if(t.id==='lyrSize'){ t.nextElementSibling.textContent=t.value+'%'; setLyr({size:+t.value/100}); return; }
   if(t.id==='stEnhAmt'){ E.enhanceAmt=+t.value/100; t.nextElementSibling.textContent=t.value+'%'; }
   if(t.dataset.fxp){ const tr=selTrack(), q=(FXMAP[tr.fx].params||[]).find(z=>z.key===t.dataset.fxp); tr.fxv={...(tr.fxv||{}),[q.key]:+t.value}; t.nextElementSibling.textContent=fmtParam(+t.value,q);
     const ch=ST.chains.get(tr.id); const live=ch&&ch.fx&&ch.fx.set&&!(ch.fx.rebuildOn||[]).includes(q.key); if(live) ch.fx.set(q.key,+t.value); }
@@ -644,7 +716,9 @@ function closeStudio(quiet){
   stVideo.removeAttribute('src'); try{ stVideo.load(); }catch(e){}
   if(ST.url){ URL.revokeObjectURL(ST.url); ST.url=''; }
   [...ST.chains.keys()].forEach(dropChain); ST.bufs=new Map(); ST.musicBuf=null; VOCAL.cache.clear();
-  if(!quiet) refresh();
+  // back on the stage: bring the camera, lyrics and player back for the next take
+  if(!stage.hidden&&stage.dataset.suspended) stageResume();
+  else if(!quiet) refresh();
 }
 function studioLeave(){
   if(ST.exporting) return; stPause();

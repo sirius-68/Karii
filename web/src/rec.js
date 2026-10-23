@@ -184,3 +184,6 @@ async function findLeak(voiceBuf,musicBuf,maxLag=1.2){
   let mu=0,q=0; for(let k=0;k<=max;k++){ mu+=a[k]; q+=a[k]*a[k]; } mu/=max+1; const sd=Math.sqrt(Math.max(1e-30,q/(max+1)-mu*mu));
   return {lag:lag/sr,score:best/Math.sqrt(ea*eb+1e-12),psr:(best-mu)/sd};
 }
+
+/* After the audio engine restarts (see ACH in engine.js), drop everything tied to the old context. */
+ACH.onReset(()=>{ REC.ncReady=null; if(BED_SRC){ BED_SRC=null; try{ bedRenew(); }catch(e){} } });

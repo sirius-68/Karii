@@ -480,7 +480,7 @@ function parseLrc(text){
 }
 function importLrc(s,text,quiet){
   const r=parseLrcPro(text); if(!r.lines.length){ if(!quiet) toast('No timed lines found'); return; }
-  s.body=r.lines.join('\n'); s.times=r.times; s.wt=r.wt; s.ends=r.wt.map(w=>w&&w.length?w[w.length-1].e:null); if(!r.wt.some(Boolean)){ s.ends=[]; finishTiming(s,null); }
+  s.body=r.lines.join('\n'); s.timedText=lyricLines(bodyOf(s)).join('\n'); s.times=r.times; s.wt=r.wt; s.ends=r.wt.map(w=>w&&w.length?w[w.length-1].e:null); if(!r.wt.some(Boolean)){ s.ends=[]; finishTiming(s,null); }
   if(!s.title.trim()&&r.title) s.title=r.title;
   s.updated=Date.now(); SAVE.items(); lineEditorRefresh(); toast('Imported timing for '+r.lines.length+' lines');
 }
@@ -774,7 +774,7 @@ const ACT={
   sync:el=>{ clearTimeout(edSaveT); SAVE.items(); openSync(find(el.dataset.id)); },
   'lrc-import':()=>$('#fileLrc').click(),
   'lrc-export':el=>{ const s=find(el.dataset.id); downloadFile(new File([exportLrcPro(s.title,lyricLines(s.body),s.times||[],s.wt)],(s.title||'lyrics').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-').toLowerCase()+'.lrc',{type:'text/plain'})); },
-  'sync-clear':el=>{ const s=find(el.dataset.id); s.times=[]; s.ends=[]; s.wt=[]; SAVE.items(); lineEditorRefresh(); toast('Timing cleared'); },
+  'sync-clear':el=>{ const s=find(el.dataset.id); s.timedText=null; s.times=[]; s.ends=[]; s.wt=[]; SAVE.items(); lineEditorRefresh(); toast('Timing cleared'); },
   'auto-quick':el=>autoSync(find(el.dataset.id),'quick'), 'auto-ai':el=>autoSync(find(el.dataset.id),'ai'), 'auto-gen':el=>{ const s=find(el.dataset.id); if(lyricLines(s.body).length) confirmSheet('Replace your '+(s.kind==='line'?'lines':'lyrics')+'?','Generating writes new text from the audio.','Replace and generate',()=>autoSync(s,'generate')); else autoSync(s,'generate'); },
   timeline:el=>openTimeline(find(el.dataset.id)),
   'clip-import':el=>{ PENDING_CLIP=el.dataset.id; $('#fileClip').click(); },

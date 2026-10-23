@@ -1,7 +1,9 @@
 /* ================= Music sources for the stage ================= */
 const bed={audio:new Audio(),url:'',id:null};
-bed.audio.loop=true;
-bed.audio.addEventListener('play',()=>AUDIO.claim('bed',['tts']));
+function bedWire(a){ a.loop=true; a.addEventListener('play',()=>AUDIO.claim('bed',['tts'])); }
+bedWire(bed.audio);
+/* An <audio> element can only ever feed one audio context; after the engine restarts, swap in a fresh one. */
+function bedRenew(){ const old=bed.audio, a=new Audio(); bedWire(a); a.volume=old.volume; const was=!old.paused, t=old.currentTime||0; old.pause(); if(bed.url){ a.src=bed.url; try{ a.currentTime=t; }catch(e){} } bed.audio=a; if(was) a.play().catch(()=>{}); }
 AUDIO.register('bed',{label:()=>{ const x=bed.id&&CAT.get(bed.id); return x?x.title:'Music bed'; },sub:'Music bed',icon:'list-music',playing:()=>!bed.audio.paused,stop:()=>bed.audio.pause(),here:()=>!stage.hidden});
 async function loadBed(id){
   if(bed.id===id) return; bed.audio.pause(); if(bed.url){ URL.revokeObjectURL(bed.url); bed.url=''; } bed.audio.removeAttribute('src'); bed.id=null;
@@ -96,6 +98,37 @@ function cleanWordTimes(words,wt,nextLine){
   }
   return out;
 }
+/* ---------- Keeping timing attached to the right words ----------
+   Timing is stored per line. When the lyrics are corrected after it was made (for example
+   replacing AI-generated lyrics with the real ones), the old timing no longer matches the
+   lines. Instead of showing stale timing, the corrected lines are re-aligned to the words
+   the old timing was made for; very different lyrics fall back to the old line starts. */
+function markTimed(it){ it.timedText=lyricLines(bodyOf(it)).join('\n'); }
+function retimeIfLyricsChanged(it){
+  if(!it||it.cat||!(it.kind==='song'||it.kind==='line')) return false;
+  const cur=lyricLines(bodyOf(it)), curS=cur.join('\n');
+  const hasT=(it.times||[]).some(v=>v!=null&&isFinite(v));
+  if(it.timedText==null){
+    const gen=it.genText?lyricLines(it.genText).join('\n'):null;
+    if(!(gen&&gen!==curS&&hasT)){ it.timedText=curS; return false; }
+    it.timedText=gen;
+  }
+  if(it.timedText===curS) return false;
+  if(!hasT||!cur.length){ it.timedText=curS; return false; }
+  const old=lyricLines(it.timedText), T=fillTimes(it.times,old.length).t, words=[];
+  old.forEach((l,i)=>{ if(it.times[i]==null) return; const ws=lineWords(l); const nx=T[i+1]!=null?T[i+1]:T[i]+6;
+    const end=it.ends&&it.ends[i]!=null&&it.ends[i]>T[i]?it.ends[i]:Math.min(nx-0.05,T[i]+ws.reduce((a,w)=>a+syllables(w),0)*0.38+0.5);
+    const w=it.wt&&it.wt[i]&&it.wt[i].length===ws.length?it.wt[i]:distributeWords(l,T[i],end,null);
+    ws.forEach((x,k)=>words.push({text:x,start:+w[k].s,end:+w[k].e})); });
+  let how;
+  const r=words.length?alignLyricsToWords(cur,words):null;
+  if(r&&r.confidence>=0.3){ it.times=r.times; it.ends=r.ends; it.wt=r.wt; how='aligned'; }
+  else { // too different to align word by word: keep the old line starts in order
+    it.times=cur.map((_,i)=>it.times[i]!=null?it.times[i]:null); it.ends=[]; it.wt=[]; how='kept'; }
+  markTimed(it); it.updated=Date.now(); SAVE.items();
+  toast(how==='aligned'?'Lyrics changed, so the timing was re-aligned to your corrected lines':'Lyrics changed a lot. Line timing kept; use Re-tap to fine-tune.');
+  return true;
+}
 function lineEnd(i){
   const st=K.t[i], nx=K.t[i+1];
   if(K.wt[i]&&K.wt[i].length) return Math.max(st+0.2,K.wt[i][K.wt[i].length-1].e);
@@ -171,7 +204,13 @@ function syncPip(){
   if(pl&&pip.paused) pip.play().catch(()=>{}); else if(!pl&&!pip.paused) pip.pause();
 }
 const FW={n:0,slow:0};
+/* The frame loop drives lyrics, scrolling, progress and the clock. It reschedules itself
+   first, so one bad frame (stale data, a missing element) can never stop it for good. */
 function tick(t){
+  raf=requestAnimationFrame(tick);
+  try{ frame(t); }catch(e){ if(!FW.err){ FW.err=1; console.error('[stage] frame error',e); } }
+}
+function frame(t){
   if(!lastT) lastT=t;
   const dt=Math.min(0.1,(t-lastT)/1000); lastT=t;
   // If this phone can't keep up (long frames while playing), drop the costly visual effects
@@ -190,8 +229,20 @@ function tick(t){
       if(pos>=maxPos()-0.5&&maxPos()>0){ if(rehearsing){ rehearsing=false; bedSync(); } if(state==='recording') toast('That’s the end. Press stop when you’re done.'); syncUI(); } }
     const mp=maxPos(); progFill.style.transform='scaleX('+(mp?pos/mp:0)+')';
   }
-  raf=requestAnimationFrame(tick);
+  camWatch(t);
 }
+function startLoop(){ cancelAnimationFrame(raf); lastT=0; raf=requestAnimationFrame(tick); }
+/* Camera watchdog: if the preview stops getting frames (the OS paused it, the track ended,
+   or the element was paused while hidden), restart it. */
+const CAMW={last:0,vt:-1,stuck:0,restarting:false};
+function camWatch(now){
+  if(stage.hidden||!camOK||!stream||CAMW.restarting||now-CAMW.last<1000) return; CAMW.last=now;
+  const tr=stream.getVideoTracks()[0];
+  if(!tr||tr.readyState!=='live'){ camRestart('ended'); return; }
+  if(cam.paused){ cam.play().catch(()=>{}); return; }
+  const vt=cam.currentTime; if(vt===CAMW.vt&&!tr.muted){ if(++CAMW.stuck>=3) camRestart('frozen'); } else CAMW.stuck=0; CAMW.vt=vt;
+}
+async function camRestart(why){ if(state==='recording'||state==='paused'||state==='counting') return; CAMW.restarting=true; CAMW.stuck=0; console.warn('[stage] camera restart:',why); try{ await startCamera(); }finally{ CAMW.restarting=false; } }
 function tweenTo(target){ target=clampPos(target); const from=pos,t0=performance.now(),dur=320; tweening=true; (function step(now){ const k=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-k,3); pos=from+(target-from)*e; scroller.scrollTop=pos; if(k<1) requestAnimationFrame(step); else tweening=false; })(t0); }
 
 let drag=null;
@@ -352,6 +403,7 @@ async function onRecorded(){
     mode:plan.mode,nc:recNC(),aec:!!plan.aec,proc:REC.proc||null,route:ROUTE.output,ext:plan.mode==='mic'&&!!S.settings.extMusic};
   // Save the take as a draft before anything else, then drop the crash-recovery chunks.
   const d=await createDraft(blob,meta,music); await liveEnd();
+  stageSuspend();
   openStudio(blob,meta,{draftId:d.id});
 }
 function drawClock(){ const ms=elapsed+(state==='recording'?performance.now()-tStart:0); $('#clock').textContent=fmt(ms/1000); }
@@ -424,7 +476,8 @@ $('#flipBtn').onclick=async()=>{ S.settings.facing=S.settings.facing==='user'?'e
 async function openStage(it){
   A=it;
   if(!bodyOf(A).trim()){ toast(A.kind==='song'?'Add some lyrics first.':'Write something first.'); return; }
-  songMode=isTimed(A); narrMode=!songMode&&voiceOf(A)==='narrator';
+  songMode=isTimed(A); narrMode=!songMode&&voiceOf(A)==='narrator'; delete stage.dataset.suspended;
+  if(songMode) retimeIfLyricsChanged(A);
   stage.classList.toggle('song',songMode); stage.classList.toggle('catsong',songMode&&guideable(A)); stage.classList.toggle('linek',A.kind==='line'); stage.classList.toggle('narr',narrMode);
   stage.hidden=false; document.body.style.overflow='hidden'; stage.classList.remove('lite'); FW.n=FW.slow=0;
   elapsed=0; rehearsing=false; state='idle'; setTune(false); wasPlaying=false; stageStart=performance.now(); TTS.on=false;
@@ -434,7 +487,7 @@ async function openStage(it){
   pip.hidden=true; if(pipUrl){ URL.revokeObjectURL(pipUrl); pipUrl=''; } pip.removeAttribute('src');
   if(songMode){
     karaList.innerHTML=''; $('#karaEmpty').hidden=true;
-    await loadTimedAudio(A); player.pause(); player.seek(0);
+    await loadTimedAudio(A); player.pause(); player.setRate(1); player.seek(0);
     playerOwner({label:titleOf(A),sub:'Stage',icon:'mic-vocal',here:()=>!stage.hidden});
     // warm up the clean (no guide) arrangement used for recorded takes
     if(guideable(A)&&S.settings.guide) setTimeout(()=>{ musicBlobFor(A,false).catch(()=>{}); },1500);
@@ -453,8 +506,32 @@ async function openStage(it){
   applyStyle(); pos=0; scroller.scrollTop=0; syncUI();
   if(songMode){ K.idx=-2; updateKara(); }
   startCamera();
-  lastT=0; cancelAnimationFrame(raf); raf=requestAnimationFrame(tick);
+  startLoop();
 }
+/* Leaving the stage for the take editor: release the camera, the frame loop and playback
+   so nothing stale keeps running underneath. stageResume() brings everything back. */
+function stageSuspend(){
+  if(stage.hidden) return;
+  stage.dataset.suspended='1'; cancelAnimationFrame(raf); clearInterval(clockT); stopMeter();
+  try{ player.pause(); }catch(e){} bed.audio.pause(); pip.pause(); musicPreviewStop(); narratorStop(); rehearsing=false;
+  stopCamera(); unlockScreen();
+}
+async function stageResume(){
+  if(stage.hidden||!A) return;
+  delete stage.dataset.suspended;
+  state='idle'; recLive=false; recMixed=false; recorder=null; chunks=[]; stemRec=null; stemChunks=[]; clearInterval(clockT);
+  // pick up lyric or timing edits made since the stage was opened
+  const fresh=(typeof find==='function'&&find(A.id))||A; A=fresh; retimeIfLyricsChanged(A);
+  if(songMode){
+    await loadTimedAudio(A); player.pause(); player.seek(0); player.setRate(1);
+    player.setVolume(A.kind==='line'&&voiceOf(A)==='dub'?0:1);
+    playerOwner({label:titleOf(A),sub:'Stage',icon:'mic-vocal',here:()=>!stage.hidden});
+    buildKara(); K.idx=-2; requestAnimationFrame(()=>{ placeKara(0); updateKara(); });
+  } else { pos=0; scroller.scrollTop=0; }
+  elapsed=0; syncTune(); syncUI(); showRouteLine(false); $('#pausedBanner').hidden=true;
+  await startCamera(); startLoop();
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&!stage.hidden&&!stage.dataset.suspended){ ac().resume().catch(()=>{}); if(state==='idle'){ if(!stream) startCamera(); else if(cam.paused) cam.play().catch(()=>{}); } startLoop(); } });
 function closeStage(quiet){
   if(state==='recording'||state==='paused'||state==='counting') return;
   narratorStop();
@@ -470,7 +547,7 @@ player.onend=()=>syncUI();
 /* ================= Tap-sync studio ================= */
 const sy={open:false,lines:[],marks:[],raf:0,dragging:false,item:null,an:null};
 async function openSync(it){
-  sy.item=it; sy.lines=lyricLines(it.body); sy.an=null;
+  retimeIfLyricsChanged(it); sy.item=it; sy.lines=lyricLines(it.body); sy.an=null;
   if(!sy.lines.length){ toast('Add some lines first'); return; }
   await loadTimedAudio(it); ac().resume();
   playerOwner({label:titleOf(it),sub:'Sync lyrics',here:()=>!$('#sync').hidden});
@@ -492,7 +569,8 @@ function renderSync(){
   $('#syCount').textContent=Math.min(i,n)+' of '+n+' lines tapped';
   $('#syTap').disabled=i>=n;
 }
-function syLoop(){ if(!sy.open) return; const t=player.time(),d=player.duration()||0; $('#syNow').textContent=fmt(t); $('#syDur').textContent=fmt(d); const sk=$('#sySeek'); sk.max=d||1; if(!sy.dragging) sk.value=t; const pl=player.playing(); $('#syPlayIc').innerHTML=pl?ic('pause','fill'):ic('play','fill'); $('#syPlayLbl').textContent=pl?'Pause':'Play'; sy.raf=requestAnimationFrame(syLoop); }
+function syLoop(){ if(!sy.open) return; sy.raf=requestAnimationFrame(syLoop); try{ syFrame(); }catch(e){} }
+function syFrame(){ const t=player.time(),d=player.duration()||0; $('#syNow').textContent=fmt(t); $('#syDur').textContent=fmt(d); const sk=$('#sySeek'); sk.max=d||1; if(!sy.dragging) sk.value=t; const pl=player.playing(); $('#syPlayIc').innerHTML=pl?ic('pause','fill'):ic('play','fill'); $('#syPlayLbl').textContent=pl?'Pause':'Play'; }
 function syTap(){
   if(sy.marks.length>=sy.lines.length) return; if(!player.playing()) player.play();
   let t=player.time()-(S.settings.tapLat??0.08)*Math.min(1,player.rate);
@@ -511,7 +589,7 @@ $('#sySave').onclick=()=>{
   const s=sy.item, n=sy.lines.length, old=s.times||[], m=sy.marks, last=m.length?m[m.length-1]:-1;
   if(!m.length){ toast('Tap along with at least one line first'); return; }
   s.times=sy.lines.map((_,i)=>i<m.length?m[i]:(old.length===n&&old[i]!=null&&old[i]>last?old[i]:null));
-  finishTiming(s,sy.an);
+  finishTiming(s,sy.an); markTimed(s);
   s.updated=Date.now(); SAVE.items(); closeSync(); toast('Saved timing for '+m.length+' of '+n+' lines · word timing added');
 };
 function finishTiming(s,an){
@@ -573,7 +651,7 @@ async function autoSync(it,mode){
       ps.set('Decoding audio…',.1,'Runs on your device. Works best when the vocals are clear.');
       const buf=await decodeBlob(blob);
       const an=await analyze(buf,musicKey(it,false),p=>ps.set('Finding vocal onsets and the beat…',.15+p*.7));
-      it.times=autoSyncDP(lines,an); finishTiming(it,an);
+      it.times=autoSyncDP(lines,an); finishTiming(it,an); markTimed(it);
       it.updated=Date.now(); SAVE.items(); ps.done('Auto-synced '+lines.length+' lines · '+an.bpm+' BPM','Synced');
       toast('Auto-synced '+lines.length+' lines · '+an.bpm+' BPM. Fine-tune if anything’s early or late.');
     } else {
@@ -598,7 +676,7 @@ async function autoSync(it,mode){
         const r=alignLyricsToWords(lines,res.words); it.times=r.times; it.ends=r.ends; it.wt=r.wt;
         toast('AI-synced '+lines.length+' lines · '+Math.round(r.confidence*100)+'% of words matched');
       }
-      it.updated=Date.now(); SAVE.items(); ps.done(lyricLines(it.body).length+' lines with word timing',mode==='generate'||!lines.length?(it.kind==='line'?'Lines ready':'Lyrics ready'):'Synced');
+      markTimed(it); it.updated=Date.now(); SAVE.items(); ps.done(lyricLines(it.body).length+' lines with word timing',mode==='generate'||!lines.length?(it.kind==='line'?'Lines ready':'Lyrics ready'):'Synced');
     }
     lineEditorRefresh();
   }catch(e){
@@ -612,7 +690,7 @@ async function autoSync(it,mode){
 
 /* ================= Timeline fine-tune ================= */
 async function openTimeline(it){
-  const lines=lyricLines(it.body); if(!lines.length){ toast('Add lines first'); return; }
+  retimeIfLyricsChanged(it); const lines=lyricLines(it.body); if(!lines.length){ toast('Add lines first'); return; }
   await loadTimedAudio(it); ac().resume();
   if(!player.hasAudio){ toast('Attach audio to fine-tune against a waveform'); return; }
   playerOwner({label:titleOf(it),sub:'Fine-tune timing',open:()=>openTimeline(it),here:()=>{ const e=STACK[STACK.length-1]; return !!(e&&e.name==='timeline'); }});
@@ -655,7 +733,7 @@ async function openTimeline(it){
     el.querySelector('#tlHear').onclick=()=>{ player.seek(Math.max(0,TL.T[TL.sel]-0.8)); player.play(); clearTimeout(TL.stopT); TL.stopT=setTimeout(()=>player.pause(),3600); };
     el.querySelector('#tlAll').onclick=()=>actionSheet('Shift every line',[-0.5,-0.2,-0.1,0.1,0.2,0.5].map(v=>({icon:v<0?'chevrons-left':'chevrons-right',label:(v>0?'+':'')+v+'s',run:()=>{ for(let i=0;i<lines.length;i++){ const d=v; TL.T[i]=+Math.max(0,TL.T[i]+d).toFixed(3); if(TL.W[i]) TL.W[i]=TL.W[i].map(x=>({s:+(x.s+d).toFixed(3),e:+(x.e+d).toFixed(3)})); if(TL.E[i]!=null) TL.E[i]=+(TL.E[i]+d).toFixed(3); } renderSel(); }})));
     el.querySelector('#tlList').addEventListener('click',e=>{ const r=e.target.closest('[data-k]'); if(!r) return; TL.sel=+r.dataset.k; renderSel(); wrap.scrollLeft=TL.T[TL.sel]*TL.pps-wrap.clientWidth/3; player.seek(Math.max(0,TL.T[TL.sel]-0.8)); });
-    el.querySelector('#tlSave').onclick=()=>{ it.times=TL.T.slice(); it.wt=TL.W.map((w,i)=>w||distributeWords(lines[i],TL.T[i],(TL.E[i]!=null?TL.E[i]:estimateEnds(lines,TL.T,TL.an)[i]),TL.an&&TL.an.peaks)); it.ends=TL.E.length?TL.E:estimateEnds(lines,TL.T,TL.an); it.updated=Date.now(); SAVE.items(); player.pause(); pop(); toast('Timing saved'); };
+    el.querySelector('#tlSave').onclick=()=>{ it.times=TL.T.slice(); it.wt=TL.W.map((w,i)=>w||distributeWords(lines[i],TL.T[i],(TL.E[i]!=null?TL.E[i]:estimateEnds(lines,TL.T,TL.an)[i]),TL.an&&TL.an.peaks)); it.ends=TL.E.length?TL.E:estimateEnds(lines,TL.T,TL.an); markTimed(it); it.updated=Date.now(); SAVE.items(); player.pause(); pop(); toast('Timing saved'); };
     const loop=()=>{ if(!el.isConnected){ player.pause(); return; } const t=player.time(); head.style.left=t*TL.pps+'px'; el.querySelector('#tlNow').textContent=fmt(t); el.querySelector('#tlPlay').innerHTML=player.playing()?ic('pause','fill'):ic('play','fill'); if(player.playing()){ const x=t*TL.pps; if(x<wrap.scrollLeft||x>wrap.scrollLeft+wrap.clientWidth*0.85) wrap.scrollLeft=x-wrap.clientWidth*0.25; } TL.raf=requestAnimationFrame(loop); };
     cancelAnimationFrame(TL.raf); TL.raf=requestAnimationFrame(loop);
   });
