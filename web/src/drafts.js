@@ -33,7 +33,7 @@ async function createDraft(video,meta,music){
   if(music) await idb.putx('draftm:'+id,music,'rec');
   if(meta.stem) await idb.putx('draftstem:'+id,meta.stem,'rec');
   const d={id,title:meta.title||'Take',itemId:meta.itemId||null,kind:meta.kind||'script',created:Date.now(),updated:Date.now(),dur:meta.dur||0,thumb:'',hasMusic:!!music,
-    meta:{captions:meta.captions||[],musicVol:meta.musicVol??.8,musicOffset:meta.musicOffset||0,remix:!!meta.remix,loop:meta.kind!=='song',mixed:!!meta.mixed,mode:meta.mode||null,nc:!!meta.nc,aec:!!meta.aec,proc:meta.proc||null,route:meta.route||null,ext:!!meta.ext},hasStem:!!meta.stem,edit:null,open:true};
+    meta:{captions:meta.captions||[],musicVol:meta.musicVol??.8,musicOffset:meta.musicOffset||0,remix:!!meta.remix,loop:meta.kind!=='song',mixed:!!meta.mixed,mode:meta.mode||null,nc:!!meta.nc,aec:!!meta.aec,proc:meta.proc||null,route:meta.route||null,ext:!!meta.ext,health:meta.health||null,musicAuto:meta.musicAuto||null},hasStem:!!meta.stem,edit:null,open:true};
   S.drafts.unshift(d); S.drafts=S.drafts.slice(0,30); SAVE.drafts();
   return d;
 }
@@ -56,7 +56,7 @@ async function openDraft(id){
   const video=await idb.get('draft:'+id,'rec'); if(!video){ toast('The video for this draft is missing'); deleteDraft(id); return; }
   const music=d.hasMusic?await idb.get('draftm:'+id,'rec'):null;
   const stem=d.hasStem?await idb.get('draftstem:'+id,'rec'):null;
-  openStudio(video,{title:d.title,itemId:d.itemId,kind:d.kind,dur:d.dur,captions:d.meta.captions,music,musicVol:d.meta.musicVol,musicOffset:d.meta.musicOffset,remix:d.meta.remix,mixed:d.meta.mixed,stem,mode:d.meta.mode,nc:d.meta.nc,aec:d.meta.aec,proc:d.meta.proc,route:d.meta.route,ext:d.meta.ext},{draftId:id,edit:d.edit});
+  openStudio(video,{title:d.title,itemId:d.itemId,kind:d.kind,dur:d.dur,captions:d.meta.captions,music,musicVol:d.meta.musicVol,musicOffset:d.meta.musicOffset,remix:d.meta.remix,mixed:d.meta.mixed,stem,mode:d.meta.mode,nc:d.meta.nc,aec:d.meta.aec,proc:d.meta.proc,route:d.meta.route,ext:d.meta.ext,health:d.meta.health,musicAuto:d.meta.musicAuto},{draftId:id,edit:d.edit});
 }
 
 /* Launch-time recovery: an interrupted recording, then an editing session left open. */

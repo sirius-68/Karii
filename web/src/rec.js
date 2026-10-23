@@ -20,7 +20,11 @@
    noise suppression and auto-gain are never used.
    ===================================================================== */
 const REC={g:null,on:false,plan:null,proc:null,ncReady:null};
-const recMusicLevel=()=>S.settings.recMusic??0.6;
+/* In the digital mix the music arrives already at the volume you set on the stage (it is
+   tapped after the player's volume), so the recording follows the slider live. A fixed
+   headroom keeps room for the voice on top. */
+const REC_HEADROOM=0.75;
+const recMusicLevel=()=>REC_HEADROOM;
 const recMicDb=()=>S.settings.micGain??0;
 const recNC=()=>!!S.settings.noiseCancel;
 const recAECSetting=()=>S.settings.echoCancel||'auto';
@@ -40,38 +44,52 @@ function recPlan(internalMusic){
    last ~8 s, so steady noise (fans, hum, hiss, distant chatter) is reduced but sustained
    music and voice are not chased down. Attenuation is capped at 12 dB to stay natural.
    Constant latency (1024 samples) whether on or off, so toggling never shifts timing. */
+/* Runs on the audio thread, so it allocates nothing after construction (garbage collection
+   on that thread is heard as clicks and stutter) and uses precomputed FFT tables. */
 const NC_SRC=`
 class NC extends AudioWorkletProcessor{
-  constructor(o){ super(); const N=1024,H=256,B=N/2+1, a0=(o&&o.processorOptions&&o.processorOptions.amount)||0; Object.assign(this,{N,H,B,fp:0,amt:a0,target:a0,frames:0});
+  constructor(o){ super(); const N=1024,H=256,B=N/2+1,M=16, a0=(o&&o.processorOptions&&o.processorOptions.amount)||0;
+    this.N=N; this.H=H; this.B=B; this.M=M; this.fp=0; this.amt=a0; this.target=a0; this.frames=0;
     this.win=new Float32Array(N); for(let i=0;i<N;i++) this.win[i]=Math.sqrt(0.5-0.5*Math.cos(2*Math.PI*i/N));
+    this.cosT=new Float32Array(N/2); this.sinT=new Float32Array(N/2); for(let i=0;i<N/2;i++){ this.cosT[i]=Math.cos(2*Math.PI*i/N); this.sinT[i]=Math.sin(2*Math.PI*i/N); }
+    this.rev=new Uint16Array(N); for(let i=0,j=0;i<N;i++){ this.rev[i]=j; let b=N>>1; while(j&b){ j^=b; b>>=1; } j|=b; }
     this.fifo=new Float32Array(H); this.ana=new Float32Array(N); this.ola=new Float32Array(N); this.re=new Float32Array(N); this.im=new Float32Array(N);
-    this.P=new Float32Array(B); this.cur=new Float32Array(B).fill(1e9); this.mins=[]; this.G=new Float32Array(B).fill(1); this.g=new Float32Array(B);
+    this.P=new Float32Array(B); this.cur=new Float32Array(B).fill(1e9); this.hist=new Float32Array(M*B).fill(1e9); this.hmin=new Float32Array(B).fill(1e9); this.hn=0; this.hi=0;
+    this.G=new Float32Array(B).fill(1); this.g=new Float32Array(B);
     this.Q=16384; this.ring=new Float32Array(this.Q); this.w=N; this.r=0;
     this.block=Math.round(sampleRate*0.5/H);
-    this.port.onmessage=e=>{ if(e.data&&e.data.amount!=null) this.target=e.data.amount; }; }
-  fft(re,im,inv){ const n=re.length; for(let i=1,j=0;i<n;i++){ let b=n>>1; for(;j&b;b>>=1) j^=b; j^=b; if(i<j){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; } }
-    for(let len=2;len<=n;len<<=1){ const a=(inv?2:-2)*Math.PI/len, wr=Math.cos(a), wi=Math.sin(a), h=len>>1;
-      for(let i=0;i<n;i+=len){ let cr=1,ci=0; for(let k=0;k<h;k++){ const p=i+k,q=p+h, tr=re[q]*cr-im[q]*ci, ti=re[q]*ci+im[q]*cr; re[q]=re[p]-tr; im[q]=im[p]-ti; re[p]+=tr; im[p]+=ti; const nr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=nr; } } }
-    if(inv) for(let i=0;i<n;i++){ re[i]/=n; im[i]/=n; } }
-  frame(){ const {N,H,B,re,im,win,P,G,g}=this;
+    this.alive=true; this.idle=0;
+    this.port.onmessage=e=>{ if(!e.data) return; if(e.data.amount!=null) this.target=e.data.amount; if(e.data.stop) this.alive=false; }; }
+  fft(re,im,inv){ const n=this.N, rev=this.rev, C=this.cosT, S=this.sinT;
+    for(let i=0;i<n;i++){ const j=rev[i]; if(i<j){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; } }
+    for(let len=2;len<=n;len<<=1){ const h=len>>1, step=n/len;
+      for(let i=0;i<n;i+=len){ for(let k=0;k<h;k++){ const cr=C[k*step], ci=inv?S[k*step]:-S[k*step], p=i+k, q=p+h, tr=re[q]*cr-im[q]*ci, ti=re[q]*ci+im[q]*cr; re[q]=re[p]-tr; im[q]=im[p]-ti; re[p]+=tr; im[p]+=ti; } } }
+    if(inv){ const s=1/n; for(let i=0;i<n;i++){ re[i]*=s; im[i]*=s; } } }
+  frame(){ const N=this.N,H=this.H,B=this.B,re=this.re,im=this.im,win=this.win,P=this.P,G=this.G,g=this.g,cur=this.cur,hmin=this.hmin;
     this.ana.copyWithin(0,H); this.ana.set(this.fifo,N-H);
     for(let i=0;i<N;i++){ re[i]=this.ana[i]*win[i]; im[i]=0; }
     this.fft(re,im,false);
     this.amt+=(this.target-this.amt)*0.08; const floor=Math.pow(10,-12*this.amt/20);
-    const first=this.frames<4; for(let k=0;k<B;k++){ const p=re[k]*re[k]+im[k]*im[k]; P[k]=first?p:P[k]*0.75+p*0.25; if(!first&&P[k]<this.cur[k]) this.cur[k]=P[k]; }
-    if(++this.frames%this.block===0){ this.mins.push(this.cur.slice()); if(this.mins.length>16) this.mins.shift(); this.cur.fill(1e9); }
-    for(let k=0;k<B;k++){ let n=this.cur[k]; for(const m of this.mins) if(m[k]<n) n=m[k]; n*=3;
-      const v=this.amt<0.001?1:Math.max(floor,1-n/(P[k]+1e-12)); g[k]=v; }
-    for(let k=0;k<B;k++){ const s=(g[Math.max(0,k-1)]+2*g[k]+g[Math.min(B-1,k+1)])/4; G[k]+=(s-G[k])*(s>G[k]?0.6:0.18); }
+    const first=this.frames<4; for(let k=0;k<B;k++){ const p=re[k]*re[k]+im[k]*im[k]; P[k]=first?p:P[k]*0.75+p*0.25; if(!first&&P[k]<cur[k]) cur[k]=P[k]; }
+    if(++this.frames%this.block===0){ // close a 0.5 s block: store its minimum, recompute the 8 s minimum
+      const M=this.M, hist=this.hist, o=this.hi*B; for(let k=0;k<B;k++){ hist[o+k]=cur[k]; cur[k]=1e9; } this.hi=(this.hi+1)%M; if(this.hn<M) this.hn++;
+      for(let k=0;k<B;k++){ let m=1e9; for(let q=0;q<this.hn;q++){ const v=hist[q*B+k]; if(v<m) m=v; } hmin[k]=m; } }
+    const off=this.amt<0.001;
+    for(let k=0;k<B;k++){ let n=hmin[k]; if(cur[k]<n) n=cur[k]; n*=3; g[k]=off?1:Math.max(floor,1-n/(P[k]+1e-12)); }
+    for(let k=0;k<B;k++){ const s=(g[k>0?k-1:0]+2*g[k]+g[k<B-1?k+1:B-1])*0.25; G[k]+=(s-G[k])*(s>G[k]?0.6:0.18); }
     for(let k=0;k<B;k++){ re[k]*=G[k]; im[k]*=G[k]; if(k>0&&k<B-1){ re[N-k]=re[k]; im[N-k]=-im[k]; } }
     this.fft(re,im,true);
-    for(let i=0;i<N;i++) this.ola[i]+=re[i]*win[i]*0.5;
-    for(let i=0;i<H;i++){ this.ring[this.w]=this.ola[i]; this.w=(this.w+1)%this.Q; }
-    this.ola.copyWithin(0,H); this.ola.fill(0,N-H); }
-  process(inputs,outputs){ const x=inputs[0]&&inputs[0][0], out=outputs[0]; if(!out||!out[0]) return true;
-    const y=out[0];
-    for(let i=0;i<y.length;i++){ this.fifo[this.fp++]=x?x[i]:0; if(this.fp===this.H){ this.frame(); this.fp=0; } y[i]=this.ring[this.r]; this.ring[this.r]=0; this.r=(this.r+1)%this.Q; }
-    for(let c=1;c<out.length;c++) out[c].set(y);
+    const ola=this.ola, ring=this.ring, Q=this.Q; for(let i=0;i<N;i++) ola[i]+=re[i]*win[i]*0.5;
+    let w=this.w; for(let i=0;i<H;i++){ ring[w]=ola[i]; w=w+1===Q?0:w+1; } this.w=w;
+    ola.copyWithin(0,H); ola.fill(0,N-H); }
+  // Returning false lets the browser retire this processor. Without it, every finished take
+  // left a processor running on the audio thread, and each new take got a little slower.
+  process(inputs,outputs){ if(!this.alive) return false; const inp=inputs[0], x=inp&&inp.length?inp[0]:null, out=outputs[0];
+    if(!x){ if(++this.idle>sampleRate/128*2) return false; } else this.idle=0;
+    if(!out||!out[0]) return true;
+    const y=out[0], H=this.H, ring=this.ring, Q=this.Q, fifo=this.fifo; let r=this.r;
+    for(let i=0;i<y.length;i++){ fifo[this.fp++]=x?x[i]:0; if(this.fp===H){ this.frame(); this.fp=0; } y[i]=ring[r]; ring[r]=0; r=r+1===Q?0:r+1; }
+    this.r=r; for(let c=1;c<out.length;c++) out[c].set(y);
     return true; } }
 registerProcessor('lectern-nc',NC);`;
 const NC_LATENCY=1024;
@@ -152,13 +170,15 @@ async function recStart(micStream,plan){ recStop(); const g=await recBuild(micSt
 function recMirrorSync(){
   const g=REC.g; if(!g||!REC.mirrorBuf||!g.musicIn) return;
   if(REC.mirror){ try{ REC.mirror.stop(); }catch(e){} REC.mirror=null; }
-  if(player.on){ const s=ac().createBufferSource(); s.buffer=REC.mirrorBuf; s.playbackRate.value=player.rate; s.connect(g.musicIn); s.start(player.t0,Math.min(player.off,REC.mirrorBuf.duration-0.01)); REC.mirror=s; }
+  if(!REC.mirrorGain||REC.mirrorGain.context!==ac()){ REC.mirrorGain=ac().createGain(); } try{ REC.mirrorGain.disconnect(); }catch(e){} REC.mirrorGain.connect(g.musicIn); REC.mirrorGain.gain.value=player.vol;
+  if(player.on){ const s=ac().createBufferSource(); s.buffer=REC.mirrorBuf; s.playbackRate.value=player.rate; s.connect(REC.mirrorGain); s.start(player.t0,Math.min(player.off,REC.mirrorBuf.duration-0.01)); REC.mirror=s; }
 }
 { const _p=player.play.bind(player), _q=player.pause.bind(player);
   player.play=function(){ const r=_p(); if(REC.on) recMirrorSync(); return r; };
   player.pause=function(){ const r=_q(); if(REC.on) recMirrorSync(); return r; }; }
 function recStop(){ const g=REC.g; if(!g) return; clearInterval(g.duckT); if(REC.mirror){ try{ REC.mirror.stop(); }catch(e){} REC.mirror=null; }
   if(g.musicIn){ try{ if(player.gain) player.gain.disconnect(g.musicIn); }catch(e){} try{ if(BED_SRC) BED_SRC.disconnect(g.musicIn); }catch(e){} }
+  if(g.nc) try{ g.nc.port.postMessage({stop:true}); }catch(e){}
   g.nodes.forEach(n=>{ try{ n.disconnect(); }catch(e){} }); REC.g=null; REC.on=false; }
 
 /* ---------- Leak detection for the editor ----------

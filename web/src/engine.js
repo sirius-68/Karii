@@ -15,7 +15,11 @@
       lead, countdown dots before late entries.
    ===================================================================== */
 let AC=null;
-function ac(){ if(!AC){ const C=window.AudioContext||window.webkitAudioContext; AC=new C({latencyHint:'interactive'}); ACH.reset(); } return AC; }
+/* Phones get the 'playback' latency class: larger audio buffers, so a busy CPU (camera,
+   video encoder, lyrics) can't starve the audio thread into clicks and stutter. The extra
+   output delay is measured and compensated like any other. */
+const AC_HINT=()=>/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)?'playback':'interactive';
+function ac(){ if(!AC){ const C=window.AudioContext||window.webkitAudioContext; try{ AC=new C({latencyHint:AC_HINT()}); }catch(e){ AC=new C(); } ACH.reset(); } return AC; }
 /* ---------- Audio engine health ----------
    On some Android phones, opening and closing the microphone switches the audio hardware
    between call mode and media mode. The Web Audio context can keep running at the old
@@ -94,6 +98,16 @@ const player={
     if(t<this._last&&this._last-t<0.12&&this.on) t=this._last;
     this._last=t; return t;
   },
+  /* Time for drawing lyrics: follows time() but glides over small jumps of the measured
+     position (timestamp jitter, a late frame), so the highlight never skips words. Big
+     differences (a seek, a real jump in the audio) are taken at once. */
+  _vt:0,_vw:0,
+  vtime(){ const t=this.time(), now=performance.now();
+    if(!this.playing()){ this._vt=t; this._vw=now; return t; }
+    const dt=Math.min(0.25,(now-this._vw)/1000); this._vw=now;
+    let v=this._vt+dt*this.rate; const err=t-v;
+    if(Math.abs(err)>0.6) v=t; else v+=err*Math.min(1,dt*6);
+    this._vt=v; return v; },
   playing(){ return this.hasAudio?this.on:this.vPlaying; },
   play(){
     if(!this.hasAudio){ if(this.vOff>=this.vDur) this.vOff=0; this.vStart=performance.now(); this.vPlaying=true; return; }
@@ -115,7 +129,8 @@ const player={
     if(!this.hasAudio){ this.vOff=t; this.vStart=performance.now(); return; }
     const was=this.on; if(was) this.pause(); this.off=t; if(was) this.play(); },
   setRate(r){ if(!this.hasAudio){ if(this.vPlaying){ this.vOff=this.time(); this.vStart=performance.now(); } this.rate=r; return; } const was=this.on; if(was) this.pause(); this.rate=r; if(was) this.play(); },
-  setVolume(v){ this.vol=v; if(this.gain) this.gain.gain.value=v; }
+  // short ramp so dragging a volume slider never clicks or zips
+  setVolume(v){ this.vol=v; if(this.gain){ try{ this.gain.gain.setTargetAtTime(v,ac().currentTime,0.025); }catch(e){ this.gain.gain.value=v; } } }
 };
 
 /* ---------- Syllables (English heuristic + Cyrillic/vowel fallback) ---------- */

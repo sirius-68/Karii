@@ -132,7 +132,13 @@ function startSources(at){
       if(cl.fadeOut>0){ const fo=Math.max(startTl,b-cl.fadeOut); g.setValueAtTime(valAt(fo),tl2c(fo)); g.linearRampToValueAtTime(0,tl2c(b)); }
     });
   });
-  if(ST.musicBuf&&ST.hasMusic){ const m=c.createBufferSource(); m.buffer=ST.musicBuf; m.loop=!!(ST.meta&&ST.meta.loop); m.connect(ST.musicGain);
+  if(ST.musicBuf&&ST.hasMusic){ const m=c.createBufferSource(); m.buffer=ST.musicBuf; m.loop=!!(ST.meta&&ST.meta.loop);
+    // music volume changes made on the stage during the take, replayed on the timeline
+    const au=ST.meta&&ST.meta.musicAuto; let into=ST.musicGain;
+    if(au&&au.length){ const ag=c.createGain(); ag.connect(ST.musicGain); into=ag; let cur=1; for(const [t,v] of au){ if(t<=at) cur=v; }
+      ag.gain.setValueAtTime(cur,when); let pv=cur; for(const [t,v] of au){ if(t>at){ const w=when+(t-at); ag.gain.setValueAtTime(pv,w); ag.gain.linearRampToValueAtTime(v,w+0.05); pv=v; } }
+      m.onended=()=>{ try{ ag.disconnect(); }catch(e){} }; }
+    m.connect(into);
     const mo=at-musicAt();
     if(mo>=0){ if(m.loop||mo<ST.musicBuf.duration){ m.start(when,m.loop?mo%ST.musicBuf.duration:mo); ST.srcs.push(m); } }
     else { m.start(when-mo,0); ST.srcs.push(m); } }
@@ -597,6 +603,7 @@ function audioSourcesHTML(){
   const dev=m.proc&&(m.proc.ns||m.proc.agc)?' The phone kept its own '+[m.proc.ns&&'noise suppression',m.proc.agc&&'automatic volume'].filter(Boolean).join(' and ')+' on.':'';
   return row('video','<b>In the video file:</b> one audio track with '+inFile+'.')+
     row('play','<b>The editor plays:</b> '+plays+'. The video’s own sound stays muted here, so nothing plays twice. Your export uses the same mix.')+
+    (m.health&&(m.health.underrun>0.2||m.health.worst<0.9)?row('info','<b>The audio struggled during this take</b> (about '+m.health.underrun.toFixed(1)+' s of the sound was late). If you hear stutter, record it again: the next take starts on a fresh audio engine.'):'')+
     (m.mixed&&ST.hasMusic&&leakFound()?row('info','<b>Speaker music in the voice track:</b> echo cancellation didn’t fully remove it while recording, so the raw video has the music twice. The editor lines the clean track up with it, and saving rebuilds the video from this single mix.'):'')+
     (proc||dev?row('settings-2','<b>Recorded with:</b> '+(proc||'standard settings')+'.'+dev):'');
 }

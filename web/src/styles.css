@@ -413,6 +413,7 @@ body.no-tabbar #mini{bottom:calc(var(--sab) + 12px)}
 .kl.now::before{content:attr(data-text);position:absolute;inset:0;z-index:-1;color:transparent;text-shadow:0 2px 12px rgba(0,0,0,.85);pointer-events:none}
 #karaList{will-change:transform}
 .kl.past{opacity:.22}
+.kl.next{opacity:.7;transform:scale(.94)}
 .kw{--p:0;background:linear-gradient(90deg,#fff 0,#fff calc(var(--p) * 100%),rgba(255,255,255,.42) calc(var(--p) * 100%));-webkit-background-clip:text;background-clip:text;color:transparent}
 .kl.now .kw{background:linear-gradient(90deg,#C4B5FD 0,#FBCFE8 calc(var(--p) * 60%),#fff calc(var(--p) * 100%),rgba(255,255,255,.42) calc(var(--p) * 100%));-webkit-background-clip:text;background-clip:text}
 #karaHint{position:absolute;left:50%;top:10%;transform:translateX(-50%);z-index:2;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:rgba(30,30,34,.8);font-size:.9rem}
@@ -936,3 +937,13 @@ table.bench th{color:var(--muted);font-weight:500}
 .lyr-chips .chip.sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--violet)}
 .lyr-card .tlink{margin-top:4px}
 .lyr-chips .chip:not(.sw){padding:0 12px}
+.tl-words{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.tl-words .chip{flex-direction:column;align-items:center;line-height:1.1;padding:6px 10px;min-height:40px}
+.tl-words .chip small{font-family:var(--mono);font-size:.68rem;opacity:.7}
+
+/* ================= Stage: background music volume ================= */
+.mixbar{display:flex;align-items:center;gap:10px;margin:0 auto 10px;max-width:460px;padding:6px 14px;border-radius:999px;background:rgba(20,20,22,.6);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);color:#fff}
+.mixbar[hidden]{display:none}
+.mixbar .mb-l{font-size:.82rem;font-weight:600;opacity:.85}
+.mixbar input[type=range]{flex:1;min-width:0;height:32px;accent-color:#fff}
+.mixbar output{min-width:40px;text-align:right;font-variant-numeric:tabular-nums;font-size:.82rem;color:rgba(255,255,255,.75)}

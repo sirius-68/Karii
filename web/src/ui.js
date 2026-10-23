@@ -480,7 +480,7 @@ function parseLrc(text){
 }
 function importLrc(s,text,quiet){
   const r=parseLrcPro(text); if(!r.lines.length){ if(!quiet) toast('No timed lines found'); return; }
-  s.body=r.lines.join('\n'); s.timedText=lyricLines(bodyOf(s)).join('\n'); s.times=r.times; s.wt=r.wt; s.ends=r.wt.map(w=>w&&w.length?w[w.length-1].e:null); if(!r.wt.some(Boolean)){ s.ends=[]; finishTiming(s,null); }
+  s.body=r.lines.join('\n'); s.timedText=lyricLines(bodyOf(s)).join('\n'); s.refined=9; s.times=r.times; s.wt=r.wt; s.ends=r.wt.map(w=>w&&w.length?w[w.length-1].e:null); if(!r.wt.some(Boolean)){ s.ends=[]; finishTiming(s,null); }
   if(!s.title.trim()&&r.title) s.title=r.title;
   s.updated=Date.now(); SAVE.items(); lineEditorRefresh(); toast('Imported timing for '+r.lines.length+' lines');
 }

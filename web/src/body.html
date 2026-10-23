@@ -68,7 +68,6 @@
       <label class="fld">Opacity <input type="range" id="opac" min="30" max="100" step="5"><output id="opacO"></output></label>
       <label class="fld not-song">Focus <input type="range" id="focusSl" min="10" max="80" step="1"><output id="focusO"></output></label>
       <label class="fld">Mic level <input type="range" id="micGain" min="-12" max="12" step="1" aria-label="Microphone level"><output id="micGainO"></output></label>
-      <label class="fld" id="recMusRow">Music in take <input type="range" id="recMus" min="0" max="100" step="5" aria-label="Music level in the recording"><output id="recMusO"></output></label>
       <label class="fld only-song">Lyric timing <input type="range" id="offs" min="-2" max="2" step="0.05"><output id="offsO"></output></label>
       <div class="fld only-line"><span>Voice</span><div class="chips" id="voiceSeg"><button class="chip" data-v="me">My voice</button><button class="chip" data-v="original">Original clip</button><button class="chip" data-v="dub">Dub clip</button><button class="chip" data-v="narrator">AI narrator</button></div></div>
       <label class="fld only-narr">Narrator speed <input type="range" id="ttsRate" min="0.6" max="1.4" step="0.05"><output id="ttsRateO"></output></label>
@@ -84,6 +83,7 @@
         <button class="chip" id="bdrop" aria-pressed="true"><svg class="i xs"><use href="#i-layers"/></svg>Text backdrop</button>
       </div>
     </div>
+    <div id="mixBar" class="mixbar" hidden><svg class="i sm"><use href="#i-eighth-notes"/></svg><span class="mb-l">Music</span><input type="range" id="karVol" min="0" max="100" step="1" aria-label="Background music volume"><output id="karVolO"></output></div>
     <div id="controls">
       <button class="ctl" id="rewBtn"><span class="ic"><svg class="i"><use href="#i-skip-back"/></svg></span><span id="rewLbl">Top</span></button>
       <button class="ctl" id="playBtn" aria-pressed="false"><span class="ic" id="playIc"></span><span id="playLbl">Rehearse</span></button>

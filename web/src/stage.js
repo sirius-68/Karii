@@ -139,12 +139,15 @@ function lineEnd(i){
 function placeKara(idx){ const el=K.els[Math.max(0,idx)]; if(!el) return; karaEl.scrollTop=0; karaWrap.scrollTop=0; karaList.style.transform='translateY('+(karaEl.clientHeight*0.42-(el.offsetTop+el.offsetHeight/2))+'px)'; }
 function updateKara(){
   if(!K.lines.length) return;
-  const t=player.time()+offsetOf(), n=K.lines.length;
+  const t=player.vtime()+offsetOf(), n=K.lines.length;
   let idx=-1; for(let i=0;i<n;i++){ if(K.t[i]<=t) idx=i; else break; }
   const le=idx>=0?lineEnd(idx):0;
   // after a line has finished and the next one is far away, move the highlight to the upcoming line
   let show=idx; if(idx>=0&&idx<n-1&&t>le+0.6&&K.t[idx+1]-t<2.2) show=idx+1;
-  if(show!==K.idx){ K.els.forEach((el,i)=>{ el.classList.toggle('now',i===show); el.classList.toggle('past',i<show); if(i!==show) K.words[i].forEach(w=>{ const q=i<idx+(show===idx?0:1)?1:0; if(w.p!==q){ w.p=q; w.el.style.setProperty('--p',q); } }); }); K.idx=show; placeKara(show); }
+  // The upcoming line is shown (and scrolled to) so the singer can read ahead, but it isn't
+  // highlighted until its first word is actually sung.
+  const key=show+':'+idx;
+  if(key!==K.key||K.idx===-2){ K.key=key; K.els.forEach((el,i)=>{ el.classList.toggle('now',i===idx&&show===idx); el.classList.toggle('next',i===show&&show!==idx); el.classList.toggle('past',i<show); if(i!==show) K.words[i].forEach(w=>{ const q=i<idx+(show===idx?0:1)?1:0; if(w.p!==q){ w.p=q; w.el.style.setProperty('--p',q); } }); }); if(show!==K.idx) placeKara(show); K.idx=show; }
   if(show>=0&&show===idx){
     const W=K.wt[idx];
     // Only touch words whose fill changed (each style write repaints the line).
@@ -212,7 +215,8 @@ function tick(t){
 }
 function frame(t){
   if(!lastT) lastT=t;
-  const dt=Math.min(0.1,(t-lastT)/1000); lastT=t;
+  const gap=t-lastT, dt=Math.min(0.1,gap/1000); lastT=t;
+  if(state==='recording'&&RH.stats&&gap<5000){ if(gap>100) RH.stats.longFrames++; if(gap>RH.stats.maxGap) RH.stats.maxGap=gap; }
   // If this phone can't keep up (long frames while playing), drop the costly visual effects
   // so the highlight keeps pace with the music instead of stalling.
   if(songMode&&player.playing()&&!stage.classList.contains('lite')){ FW.n++; if(dt>0.034) FW.slow++; if(FW.n>=90){ if(FW.slow>30){ stage.classList.add('lite'); } FW.n=FW.slow=0; } }
@@ -281,7 +285,9 @@ function unlockScreen(){ try{ if(wake){ wake.release(); wake=null; } }catch(e){}
 /* Raw takes record as WebM where possible: it streams out a chunk every second, so a take
    survives a crash. Finished videos prefer MP4, which every gallery and chat app plays. */
 function pickMime(forExport){ if(!window.MediaRecorder) return null;
-  const mp4=['video/mp4;codecs=avc1,mp4a.40.2','video/mp4'], webm=['video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm'];
+  // H.264 in WebM first on phones: it uses the hardware encoder, where VP8 encodes on the CPU and
+  // competes with the audio for it during long takes.
+  const mp4=['video/mp4;codecs=avc1,mp4a.40.2','video/mp4'], webm=[...(IS_MOBILE?['video/webm;codecs=h264,opus']:[]),'video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm'];
   return (forExport?[...mp4,...webm]:[...webm,...mp4]).find(t=>MediaRecorder.isTypeSupported(t))||''; }
 function countdown(n){ return new Promise(res=>{ const el=$('#count'); if(n<=0){ res(); return; } el.hidden=false; let i=n; el.textContent=i; const iv=setInterval(()=>{ if(state!=='counting'){ clearInterval(iv); el.hidden=true; res(); return; } i--; if(i<=0){ clearInterval(iv); el.hidden=true; res(); } else el.textContent=i; },1000); }); }
 let recMixed=false, recLive=false, recPlanNow=null, mic=null, meter=null, meterRaf=0, recStartPerf=0, musicOffset=0, musicMarked=false, stemRec=null, stemChunks=[], stemMime='', recDelay=0;
@@ -291,6 +297,8 @@ async function startRecording(){
   if(!(await audioCheck())) return;
   if(TTS.on){ narratorStop(); toast('The narrator pauses while you record'); }
   musicPreviewStop();
+  // after a take where the audio struggled, start this one on a fresh audio engine
+  if(RH.bad&&state==='idle'){ RH.bad=false; try{ ACH.rebuild('fresh engine after a struggling take'); }catch(e){} }
   if(songMode){ ac().resume(); player.pause(); player.seek(0); K.idx=-2; updateKara(); }
   else { bed.audio.pause(); try{ bed.audio.currentTime=0; }catch(e){} }
   rehearsing=false; state='counting'; pos=0; scroller.scrollTop=0; syncUI();
@@ -324,7 +332,7 @@ async function startRecording(){
   stemRec=null; stemMime='';
   if(g&&mic){ stemMime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(x=>MediaRecorder.isTypeSupported(x))||'';
     try{ stemRec=new MediaRecorder(g.stemDest.stream,stemMime?{mimeType:stemMime,audioBitsPerSecond:160000}:undefined); stemRec.ondataavailable=e=>{ if(e.data&&e.data.size) stemChunks.push(e.data); }; }catch(e){ stemRec=null; } }
-  try{ recorder=new MediaRecorder(new MediaStream(tracks),m?{mimeType:m,videoBitsPerSecond:6000000,audioBitsPerSecond:192000}:undefined); }
+  try{ recorder=new MediaRecorder(new MediaStream(tracks),m?{mimeType:m,videoBitsPerSecond:IS_MOBILE?4500000:6000000,audioBitsPerSecond:192000}:undefined); }
   catch(e){ try{ recorder=new MediaRecorder(new MediaStream(tracks)); }catch(e2){ state='idle'; recLive=false; closeMic(); syncUI(); toast('Couldn’t start recording on this device.'); return; } }
   liveBegin({itemId:A.id,title:titleOf(A),kind:A.kind,mime:(m||'video/webm').split(';')[0],musicVol:songMode?1:S.settings.bedVol/100,mixed:recMixed,mode:plan.mode});
   recorder.ondataavailable=e=>{ if(e.data&&e.data.size){ chunks.push(e.data); liveChunk(e.data); } };
@@ -337,7 +345,7 @@ async function startRecording(){
   if(songMode){ player.play(); if(REC.attachPlayer) REC.attachPlayer(); }
   else if(!songMode) musicOffset=recMixed?recDelay:0;
   elapsed=0; tStart=performance.now(); state='recording'; lockScreen(); bedSync(); syncUI();
-  clockT=setInterval(drawClock,250);
+  clockT=setInterval(drawClock,250); recHealthStart(); MV.auto=[]; MV.v0=musicVolNow();
   if(songMode) requestAnimationFrame(markMusicStart);
 }
 /* Where the music's first beat lands in the video: when playback was scheduled, plus the
@@ -367,6 +375,29 @@ function showRouteLine(on){
   el.innerHTML=`${ic(ROUTE_ICON[ROUTE.output]||'volume-2','xs')}${esc(ROUTE.name&&ROUTE.output!=='speaker'?ROUTE.name:ROUTE_LABEL[ROUTE.output])}<span>·</span>${ic('mic','xs')}${micLbl}`;
   el.hidden=false;
 }
+/* ---------- Recording health ----------
+   While a take records, the audio engine's clock is compared with real time. If the audio
+   thread can't keep up (it falls behind: heard as stutter), the stage drops its costly
+   visual effects and warns once. If it keeps failing, the take is stopped and saved rather
+   than carrying on with broken sound, and the next take starts on a fresh audio engine. */
+const RH={t:0,s:[],bad:false,warned:false,stats:null,lowWin:0};
+function playoutFallback(){ try{ const p=AC&&AC.playoutStats; if(p&&p.fallbackFramesDuration!=null) return p.fallbackFramesDuration/1000; }catch(e){} return null; }
+function recHealthStart(){ clearInterval(RH.t); RH.s=[]; RH.warned=false; RH.lowWin=0;
+  RH.stats={underrun:0,worst:1,longFrames:0,maxGap:0,fb0:playoutFallback(),secs:0};
+  if(IS_MOBILE) stage.classList.add('lite');
+  RH.t=setInterval(recHealthCheck,500); }
+function recHealthStop(){ clearInterval(RH.t); RH.t=0; const st=RH.stats; if(!st) return null; const fb=playoutFallback(); if(fb!=null&&st.fb0!=null) st.fallback=+(fb-st.fb0).toFixed(3);
+  st.underrun=+st.underrun.toFixed(3); st.worst=+st.worst.toFixed(3); st.maxGap=Math.round(st.maxGap); if(st.underrun>0.4||st.worst<0.85) RH.bad=true; return st; }
+function recHealthCheck(){
+  if(state!=='recording'||!AC){ RH.s=[]; return; }
+  const now=performance.now(); RH.s.push([now,AC.currentTime]); while(RH.s.length&&now-RH.s[0][0]>3000) RH.s.shift();
+  RH.stats.secs+=0.5; const a=RH.s[0], b=RH.s[RH.s.length-1], wall=(b[0]-a[0])/1000; if(wall<2.5) return;
+  const ratio=(b[1]-a[1])/wall; if(ratio<RH.stats.worst) RH.stats.worst=ratio;
+  if(ratio<0.97) RH.stats.underrun+=(1-ratio)*0.5;
+  if(ratio<0.92&&!RH.warned){ RH.warned=true; stage.classList.add('lite'); toast('Your phone is struggling to keep the sound smooth. Closing other apps or turning off noise cancellation can help.'); }
+  RH.lowWin=ratio<0.7?RH.lowWin+1:0;
+  if(RH.lowWin>=5){ RH.bad=true; stopRecording(); sheet(`<h3>Recording stopped</h3><p class="sub" style="margin:6px 20px 16px">The audio couldn’t keep up, so Lectern stopped the take instead of recording broken sound. Everything up to that point is saved. Close other apps, let the phone cool down if it’s warm, then try again.</p><div class="row-btns"><button class="btn white" id="rhOk">OK</button></div>`,{onMount(el,close){ el.querySelector('#rhOk').onclick=close; }}); }
+}
 function stopRecording(){
   if(state==='counting'){ state='idle'; closeMic(); showRouteLine(false); syncUI(); return; }
   if(state==='recording') elapsed+=performance.now()-tStart;
@@ -391,7 +422,7 @@ async function onRecorded(){
   // the voice stem recorder stops on its own event; give it a moment to flush
   if(stemRec){ if(stemRec.state!=='inactive') await new Promise(r=>{ stemRec.onstop=r; try{ stemRec.stop(); }catch(e){ r(); } setTimeout(r,1500); }); else await new Promise(r=>setTimeout(r,120)); }
   const stem=stemChunks.length?new Blob(stemChunks,{type:(stemRec&&stemRec.mimeType||stemMime||'audio/webm').split(';')[0]}):null;
-  const mixed=recMixed, plan=recPlanNow||{mode:'mic'}; recMixed=false; recLive=false; recStop(); stemRec=null;
+  const mixed=recMixed, plan=recPlanNow||{mode:'mic'}; recMixed=false; recLive=false; recStop(); stemRec=null; const health=recHealthStop();
   const captions=songMode?K.lines.map((l,i)=>({t:K.t[i]-offsetOf(),e:lineEnd(i)-offsetOf(),text:l,w:K.wt[i]?K.wt[i].map(x=>({s:x.s-offsetOf(),e:x.e-offsetOf()})):null})):[];
   let music=null, mvol=0.8;
   try{
@@ -399,8 +430,10 @@ async function onRecorded(){
     else if(bed.id){ music=await instBlob(CAT.get(bed.id)); mvol=S.settings.bedVol/100; }
   }catch(e){}
   S.stats.days=[...new Set([...S.stats.days,today()])].slice(-120); SAVE.stats();
-  const meta={title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mixed?recMusicLevel()*(songMode?1:mvol):mvol,musicOffset:mixed||songMode?musicOffset:0,mixed,stem,
-    mode:plan.mode,nc:recNC(),aec:!!plan.aec,proc:REC.proc||null,route:ROUTE.output,ext:plan.mode==='mic'&&!!S.settings.extMusic};
+  // music level at the start of the take and any changes made during it (relative to the start)
+  const v0=MV.v0??musicVolNow(), auto=MV.auto.length?MV.auto.map(([t,v])=>[t,v0>0.001?+(v/v0).toFixed(3):1]):null;
+  const meta={title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mixed?recMusicLevel()*v0:mvol,musicAuto:mixed?auto:null,musicOffset:mixed||songMode?musicOffset:0,mixed,stem,
+    mode:plan.mode,nc:recNC(),aec:!!plan.aec,proc:REC.proc||null,route:ROUTE.output,ext:plan.mode==='mic'&&!!S.settings.extMusic,health};
   // Save the take as a draft before anything else, then drop the crash-recovery chunks.
   const d=await createDraft(blob,meta,music); await liveEnd();
   stageSuspend();
@@ -432,9 +465,7 @@ function syncTune(){
   $('#guideTg').setAttribute('aria-checked',String(!!st.guide));
   const b=st.bed&&CAT.get(st.bed); $('#bedName').textContent=b?b.title:st.extMusic?'Another app':'None'; $('#bedVolRow').hidden=!b;
   $('#bedVol').value=st.bedVol; $('#bedVolO').textContent=st.bedVol+'%';
-  const rm=Math.round(recMusicLevel()*100); $('#recMus').value=rm; $('#recMusO').textContent=rm+'%';
-  // the music level only applies when music is mixed digitally (headphones, or the speaker clean-mix option)
-  $('#recMusRow').hidden=!((songMode||st.bed)&&recPlan(true).digital);
+  mixBarUI();
   const mg=recMicDb(); $('#micGain').value=mg; $('#micGainO').textContent=(mg>0?'+':'')+mg+' dB';
   ncUI();
   $('#ttsRate').value=st.ttsRate||1; $('#ttsRateO').textContent=(st.ttsRate||1).toFixed(2)+'×';
@@ -445,8 +476,29 @@ function bindRange(id,key){ $(id).addEventListener('input',e=>{ const keep=key==
 bindRange('#speed','speed'); bindRange('#size','size'); bindRange('#opac','opac');
 $('#focusSl').addEventListener('input',e=>{ setFocus(+e.target.value/100); SAVE.settings(); });
 $('#offs').addEventListener('input',e=>{ const v=+e.target.value; if(A.cat){ S.settings.offsets[A.id]=v; SAVE.settings(); } else { A.offset=v; SAVE.items(); } syncTune(); K.idx=-2; updateKara(); });
-$('#bedVol').addEventListener('input',e=>{ S.settings.bedVol=+e.target.value; bed.audio.volume=S.settings.bedVol/100; SAVE.settings(); syncTune(); });
-$('#recMus').addEventListener('input',e=>{ S.settings.recMusic=+e.target.value/100; SAVE.settings(); syncTune(); if(REC.g&&REC.g.level) REC.g.level.gain.setTargetAtTime(S.settings.recMusic,ac().currentTime,0.05); });
+$('#bedVol').addEventListener('input',e=>{ setMusicVolume(+e.target.value/100); syncTune(); });
+/* ---------- Background music volume (stage) ----------
+   One music volume for what you hear and what is recorded: the player (or music bed) plays
+   at this level, and the recording taps the music after it. Changing it while recording is
+   applied at once and remembered as an envelope, so the editor and export follow it too. */
+const karVol=()=>S.settings.karVol??0.8;
+const musicVolNow=()=>songMode?karVol():(S.settings.bedVol??70)/100;
+const MV={auto:[]};
+function applyMusicVolume(){ mixBarUI();
+  if(songMode){ const v=A&&A.kind==='line'&&voiceOf(A)==='dub'?0:karVol(); player.setVolume(v); if(REC.mirrorGain) try{ REC.mirrorGain.gain.setTargetAtTime(v,ac().currentTime,0.025); }catch(e){} }
+  else bed.audio.volume=Math.max(0,Math.min(1,(S.settings.bedVol??70)/100));
+}
+function setMusicVolume(v){ v=Math.max(0,Math.min(1,v));
+  if(songMode) S.settings.karVol=v; else S.settings.bedVol=Math.round(v*100);
+  SAVE.settings(); applyMusicVolume(); mixBarUI(true);
+  if(state==='recording'||state==='paused'){ const t=(elapsed+(state==='recording'?performance.now()-tStart:0))/1000; const last=MV.auto[MV.auto.length-1]; if(last&&t-last[0]<0.05) last[1]=v; else MV.auto.push([+t.toFixed(3),+v.toFixed(3)]); } }
+function mixBarUI(fromInput){
+  const bar=$('#mixBar'); if(!bar) return;
+  const show=songMode?(player.hasAudio&&!(A&&A.kind==='line'&&voiceOf(A)==='dub')):!!S.settings.bed;
+  bar.hidden=!show; if(!show) return;
+  const v=Math.round(musicVolNow()*100); if(!fromInput) $('#karVol').value=v; $('#karVolO').textContent=v+'%';
+  $('#karVol').setAttribute('aria-valuetext',v+'% music volume'); }
+$('#karVol').addEventListener('input',e=>setMusicVolume(+e.target.value/100));
 $('#micGain').addEventListener('input',e=>{ S.settings.micGain=+e.target.value; SAVE.settings(); syncTune(); if(REC.g&&REC.g.micGain) REC.g.micGain.gain.setTargetAtTime(db2g(S.settings.micGain),ac().currentTime,0.05); });
 $('#ncBtn').onclick=async()=>{ recSetNC(!recNC()); ncUI(); if(recNC()&&!(await ncLoad())){ toast('Noise cancellation isn’t supported on this device'); return; } toast(recNC()?'Noise cancellation on · reduces steady background noise':'Noise cancellation off · natural mic sound'); };
 $('#ttsRate').addEventListener('input',e=>{ S.settings.ttsRate=+e.target.value; SAVE.settings(); syncTune(); });
@@ -491,8 +543,9 @@ async function openStage(it){
     playerOwner({label:titleOf(A),sub:'Stage',icon:'mic-vocal',here:()=>!stage.hidden});
     // warm up the clean (no guide) arrangement used for recorded takes
     if(guideable(A)&&S.settings.guide) setTimeout(()=>{ musicBlobFor(A,false).catch(()=>{}); },1500);
-    player.setVolume(A.kind==='line'&&voiceOf(A)==='dub'?0:1);
+    applyMusicVolume();
     const synced=buildKara();
+    if(synced) setTimeout(()=>refineInBackground(A),800);
     if(A.kind==='line'&&A.clip&&A.clip.type==='video'){ const b=await idb.get('clip:'+A.id); if(b){ pipUrl=URL.createObjectURL(b); pip.src=pipUrl; pip.muted=true; pip.hidden=false; } }
     if(typeof JOB!=='undefined'&&JOB.state==='run') toast('AI sync is still working in the background, so playback may stutter until it finishes.');
     else if(!synced&&K.lines.length) toast(player.hasAudio?'Not synced yet, so lines are spread evenly. Try Auto-sync in the editor.':'No music or timing yet. Lines advance every few seconds.');
@@ -524,7 +577,7 @@ async function stageResume(){
   const fresh=(typeof find==='function'&&find(A.id))||A; A=fresh; retimeIfLyricsChanged(A);
   if(songMode){
     await loadTimedAudio(A); player.pause(); player.seek(0); player.setRate(1);
-    player.setVolume(A.kind==='line'&&voiceOf(A)==='dub'?0:1);
+    applyMusicVolume();
     playerOwner({label:titleOf(A),sub:'Stage',icon:'mic-vocal',here:()=>!stage.hidden});
     buildKara(); K.idx=-2; requestAnimationFrame(()=>{ placeKara(0); updateKara(); });
   } else { pos=0; scroller.scrollTop=0; }
@@ -589,9 +642,63 @@ $('#sySave').onclick=()=>{
   const s=sy.item, n=sy.lines.length, old=s.times||[], m=sy.marks, last=m.length?m[m.length-1]:-1;
   if(!m.length){ toast('Tap along with at least one line first'); return; }
   s.times=sy.lines.map((_,i)=>i<m.length?m[i]:(old.length===n&&old[i]!=null&&old[i]>last?old[i]:null));
-  finishTiming(s,sy.an); markTimed(s);
+  finishTiming(s,sy.an); markTimed(s); s.refined=REFINE_V;
   s.updated=Date.now(); SAVE.items(); closeSync(); toast('Saved timing for '+m.length+' of '+n+' lines · word timing added');
 };
+/* ---------- Intros and pauses ----------
+   Speech recognisers (and onset-based sync) often start a word too early: in an
+   instrumental intro, or right after the previous line while the singer is still waiting,
+   the silence gets folded into the start of the next word. That made the first word light
+   up as soon as the song began, and the next line light up before the singer reached it.
+   This pass listens for where the voice actually starts (on a centre-channel "vocal focus"
+   of the song) and moves line and word starts forward to it. It only ever moves starts
+   later, only when the timed start falls on a quiet stretch, and never past the next word. */
+const REFINE_V=1;
+async function vocalAnalysis(buf,key){
+  const k='vf:'+key; if(AN_CACHE.has(k)) return AN_CACHE.get(k);
+  let src=buf;
+  try{ if(buf.numberOfChannels>1){ const out=await vocalFocus(buf); const ab=new AudioBuffer({length:out.length,numberOfChannels:1,sampleRate:16000}); ab.copyToChannel(out,0); src=ab; } }catch(e){ src=buf; }
+  const an=await analyze(src,null);
+  const srt=Array.from(an.va).sort((a,b)=>a-b), q=x=>srt[Math.floor(x*(srt.length-1))]||0, lo=q(0.25), hi=q(0.92);
+  an.vOn=lo+0.42*(hi-lo); an.vOff=lo+0.22*(hi-lo);
+  AN_CACHE.set(k,an); return an;
+}
+function refineTiming(it,an){
+  const lines=lyricLines(bodyOf(it)); if(!lines.length||!it.times) return 0;
+  const fps=an.fps, va=an.va, n=va.length;
+  const lvl=t=>{ const f=Math.round(t*fps); let m=0; for(let k=Math.max(0,f-2);k<=Math.min(n-1,f+2);k++) if(va[k]>m) m=va[k]; return m; };
+  const onset=(a,b)=>{ const need=Math.max(2,Math.round(0.09*fps)); let run=0; for(let f=Math.max(0,Math.floor(a*fps));f<=Math.min(n-1,Math.floor(b*fps));f++){ if(va[f]>an.vOn){ if(++run>=need){ const t=(f-need+1)/fps; const pk=an.peaks?nearestPeak(an.peaks,t,0.08):null; return pk!=null&&pk>=a&&pk<b?pk:t; } } else run=0; } return null; };
+  const T=fillTimes(it.times,lines.length).t; let moved=0;
+  it.wt=lines.map((l,i)=>{ const w=it.wt&&it.wt[i], ws=lineWords(l); if(w&&w.length===ws.length) return w.map(x=>({s:+x.s,e:+x.e}));
+    if(it.times[i]==null) return null; const nx=T[i+1]!=null?T[i+1]:T[i]+5; const e=it.ends&&it.ends[i]>T[i]?it.ends[i]:Math.min(nx-0.08,T[i]+ws.reduce((a,x)=>a+syllables(x),0)*0.38+0.5); return distributeWords(l,T[i],e,an.peaks); });
+  for(let i=0;i<lines.length;i++){
+    const W=it.wt[i]; if(!W||!W.length||it.times[i]==null) continue;
+    const ws=lineWords(lines[i]), prevEnd=i>0&&it.wt[i-1]&&it.wt[i-1].length?it.wt[i-1][it.wt[i-1].length-1].e:0;
+    const nextStart=i<lines.length-1&&it.times[i+1]!=null?T[i+1]:W[W.length-1].e+4;
+    // Each word, in order: if its timed start lands on silence, move the start to where the
+    // voice begins (for a line's first word this covers intros and waits between lines).
+    for(let k=0;k<W.length;k++){ const x=W[k], dur=Math.max(0.15,x.e-x.s);
+      if(k>0&&x.s<W[k-1].s+0.04) x.s=W[k-1].s+0.04;
+      const lim=(k<W.length-1?W[k+1].s:nextStart)-0.08, upper=k===0?Math.min(nextStart-0.3,x.s+20):lim;
+      // "silent start": no voice just after the timed start (a real start has its vowel there)
+      if(upper>x.s+0.3&&lvl(x.s+0.16)<an.vOff&&lvl(x.s+0.26)<an.vOff){ const o=onset(x.s+0.16,upper);
+        if(o!=null&&o-x.s>0.12){ x.s=o; if(x.e<o+0.1) x.e=o+Math.min(dur,0.8); moved++; } }
+      if(k>0&&W[k-1].e>x.s-0.01) W[k-1].e=Math.max(W[k-1].s+0.05,x.s-0.01); }
+    // words pushed past the next one by the move above keep their order
+    for(let k=1;k<W.length;k++){ if(W[k].s<W[k-1].s+0.04){ W[k].s=W[k-1].s+0.04; } if(W[k].e<W[k].s+0.06) W[k].e=W[k].s+0.06; if(W[k-1].e>W[k].s) W[k-1].e=Math.max(W[k-1].s+0.05,W[k].s-0.01); }
+    if(W[W.length-1].e>nextStart-0.05) W[W.length-1].e=Math.max(W[W.length-1].s+0.06,nextStart-0.05);
+    W.forEach(x=>{ if(x.e<x.s+0.06) x.e=x.s+0.06; x.s=+x.s.toFixed(3); x.e=+x.e.toFixed(3); });
+    it.times[i]=W[0].s; it.ends=it.ends||[]; it.ends[i]=W[W.length-1].e; }
+  it.refined=REFINE_V; return moved;
+}
+/* For songs synced before this existed: refine once in the background when the stage opens. */
+async function refineInBackground(it){
+  if(!it||it.cat||it.refined>=REFINE_V||!(it.times||[]).some(v=>v!=null)||!player.hasAudio) return;
+  const key=player.key, buf=player.buf;
+  try{ const an=await vocalAnalysis(buf,key); if(A!==it||player.key!==key) return;
+    const moved=refineTiming(it,an); markTimed(it); it.updated=Date.now(); SAVE.items();
+    if(moved&&state==='idle'&&!player.playing()&&!stage.hidden){ buildKara(); K.idx=-2; updateKara(); toast('Lyric timing adjusted to where the singing starts'); } }catch(e){}
+}
 function finishTiming(s,an){
   const lines=lyricLines(s.body), T=fillTimes(s.times,lines.length).t;
   s.ends=estimateEnds(lines,T,an);
@@ -651,7 +758,9 @@ async function autoSync(it,mode){
       ps.set('Decoding audio…',.1,'Runs on your device. Works best when the vocals are clear.');
       const buf=await decodeBlob(blob);
       const an=await analyze(buf,musicKey(it,false),p=>ps.set('Finding vocal onsets and the beat…',.15+p*.7));
-      it.times=autoSyncDP(lines,an); finishTiming(it,an); markTimed(it);
+      it.times=autoSyncDP(lines,an); finishTiming(it,an);
+      ps.set('Checking where the singing starts…',.88); try{ refineTiming(it,await vocalAnalysis(buf,musicKey(it,false))); }catch(e){}
+      markTimed(it);
       it.updated=Date.now(); SAVE.items(); ps.done('Auto-synced '+lines.length+' lines · '+an.bpm+' BPM','Synced');
       toast('Auto-synced '+lines.length+' lines · '+an.bpm+' BPM. Fine-tune if anything’s early or late.');
     } else {
@@ -676,6 +785,7 @@ async function autoSync(it,mode){
         const r=alignLyricsToWords(lines,res.words); it.times=r.times; it.ends=r.ends; it.wt=r.wt;
         toast('AI-synced '+lines.length+' lines · '+Math.round(r.confidence*100)+'% of words matched');
       }
+      ps.set('Checking where the singing starts…',.95); try{ const vb=await decodeBlob(blob); refineTiming(it,await vocalAnalysis(vb,musicKey(it,false))); }catch(e){}
       markTimed(it); it.updated=Date.now(); SAVE.items(); ps.done(lyricLines(it.body).length+' lines with word timing',mode==='generate'||!lines.length?(it.kind==='line'?'Lines ready':'Lyrics ready'):'Synced');
     }
     lineEditorRefresh();
@@ -695,14 +805,15 @@ async function openTimeline(it){
   if(!player.hasAudio){ toast('Attach audio to fine-tune against a waveform'); return; }
   playerOwner({label:titleOf(it),sub:'Fine-tune timing',open:()=>openTimeline(it),here:()=>{ const e=STACK[STACK.length-1]; return !!(e&&e.name==='timeline'); }});
   const T=fillTimes(it.times,lines.length).t.slice(), W=lines.map((l,i)=>it.wt&&it.wt[i]?it.wt[i].map(x=>({...x})):null), E=(it.ends||[]).slice();
-  const TL={T,W,E,sel:0,pps:70,an:null,raf:0};
+  const TL={T,W,E,sel:0,wsel:null,pps:70,an:null,raf:0};
   analyze(player.buf,player.key).then(a=>{ TL.an=a; }).catch(()=>{});
   push('timeline',el=>{
     el.innerHTML=pbar('Fine-tune timing',`<button class="btn white sm" id="tlSave">Save</button>`)+`
-      <p class="hint pad" style="margin:0 0 10px">Drag a line marker on the waveform, or select a line and nudge it. Tap the waveform to listen from there.</p>
+      <p class="hint pad" style="margin:0 0 10px">Drag a line marker on the waveform, or select a line and nudge it. Pick a word to fix just that word. Tap the waveform to listen from there.</p>
       <div class="tl-wrap" id="tlWrap"><div class="tl-inner" id="tlInner"><canvas id="tlCv" height="140"></canvas><div id="tlMarks"></div><i class="tl-head" id="tlHead"></i></div></div>
       <div class="tl-bar pad"><button class="circ" id="tlPlay" aria-label="Play">${ic('play','fill')}</button><time id="tlNow">0:00</time><span style="flex:1"></span><button class="circ sm" id="tlZo" aria-label="Zoom out">${ic('zoom-out','sm')}</button><button class="circ sm" id="tlZi" aria-label="Zoom in">${ic('zoom-in','sm')}</button></div>
       <div class="card tl-sel" style="margin:12px 20px 0"><div class="mute" style="font-size:.8rem" id="tlIdx"></div><b id="tlTxt"></b>
+        <div class="tl-words" id="tlWords" role="group" aria-label="Words in this line"></div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn sm" data-n="-0.1">−0.1s</button><button class="btn sm" data-n="-0.02">−20ms</button><time id="tlT" style="font-family:var(--mono);min-width:64px;text-align:center"></time><button class="btn sm" data-n="0.02">+20ms</button><button class="btn sm" data-n="0.1">+0.1s</button></div>
         <div style="display:flex;gap:8px;margin-top:10px"><button class="btn sm" id="tlSnap">${ic('magnet','xs')}Snap to onset</button><button class="btn sm" id="tlHear">${ic('play','fill xs')}Hear line</button><button class="btn sm" id="tlAll">Shift all ±</button></div></div>
       <div class="list" id="tlList" style="margin-top:14px;padding-bottom:30px"></div>`;
@@ -715,25 +826,35 @@ async function openTimeline(it){
       for(let x=0;x<w;x++){ let mn=1,mx=-1; const a=Math.floor(x*step), b=Math.min(d.length,Math.floor((x+1)*step)); for(let i=a;i<b;i+=8){ const v=d[i]; if(v<mn) mn=v; if(v>mx) mx=v; } g.fillRect(x,h/2+mn*h*.45,1,Math.max(1,(mx-mn)*h*.45)); }
       marks.innerHTML=lines.map((l,i)=>`<button class="tl-m ${i===TL.sel?'sel':''}" data-i="${i}" style="left:${TL.T[i]*pps}px"><span>${i+1}. ${esc(l.slice(0,18))}</span></button>`).join('');
       renderSel(); };
-    const renderSel=()=>{ const i=TL.sel; el.querySelector('#tlIdx').textContent='Line '+(i+1)+' of '+lines.length; el.querySelector('#tlTxt').textContent=lines[i]; el.querySelector('#tlT').textContent=fmtTag(TL.T[i]);
+    // word timing: pick a word to nudge just that word (the line moves with its first word)
+    const wordsOf=i=>{ if(!TL.W[i]){ const nx=TL.T[i+1]!=null?TL.T[i+1]:TL.T[i]+5; TL.W[i]=distributeWords(lines[i],TL.T[i],TL.E[i]!=null?TL.E[i]:Math.min(nx-0.08,TL.T[i]+3),TL.an&&TL.an.peaks); } return TL.W[i]; };
+    const moveWord=(i,k,t)=>{ const W=wordsOf(i), lo=k>0?W[k-1].s+0.04:(i>0?TL.T[i-1]+0.05:0), hi=k<W.length-1?W[k+1].s-0.04:(i<lines.length-1?TL.T[i+1]-0.05:player.duration());
+      t=+Math.max(lo,Math.min(hi,t)).toFixed(3); const d=t-W[k].s; W[k].s=t; W[k].e=+Math.max(t+0.06,Math.min(W[k].e+(k===W.length-1?d:0),k<W.length-1?W[k+1].s-0.01:W[k].e+d)).toFixed(3);
+      if(k>0) W[k-1].e=+Math.min(W[k-1].e,t-0.01).toFixed(3); if(k>0&&W[k-1].e<W[k-1].s+0.05) W[k-1].e=+(W[k-1].s+0.05).toFixed(3);
+      if(k===0) TL.T[i]=t; };
+    const renderSel=()=>{ const i=TL.sel; el.querySelector('#tlIdx').textContent='Line '+(i+1)+' of '+lines.length+(TL.wsel!=null?' · word '+(TL.wsel+1):''); el.querySelector('#tlTxt').textContent=lines[i];
+      const ws=lineWords(lines[i]), W=TL.W[i];
+      el.querySelector('#tlWords').innerHTML=`<button class="chip" data-wk="-1" aria-pressed="${TL.wsel==null}">Whole line</button>`+ws.map((w,k)=>`<button class="chip" data-wk="${k}" aria-pressed="${TL.wsel===k}">${esc(w)}<small>${W&&W[k]?fmtTag(W[k].s):''}</small></button>`).join('');
+      el.querySelector('#tlT').textContent=fmtTag(TL.wsel!=null&&W&&W[TL.wsel]?W[TL.wsel].s:TL.T[i]);
       $$('.tl-m',marks).forEach(m=>{ m.classList.toggle('sel',+m.dataset.i===i); m.style.left=TL.T[+m.dataset.i]*TL.pps+'px'; });
       el.querySelector('#tlList').innerHTML=lines.map((l,k)=>`<button class="row tl-row ${k===i?'on':''}" data-k="${k}"><time>${fmtTag(TL.T[k])}</time><span>${esc(l)}</span></button>`).join(''); };
     const move=(i,t)=>{ const lo=i>0?TL.T[i-1]+0.05:0, hi=i<lines.length-1?TL.T[i+1]-0.05:player.duration(); t=Math.max(lo,Math.min(hi,t)); const d=t-TL.T[i]; TL.T[i]=+t.toFixed(3); if(TL.W[i]) TL.W[i]=TL.W[i].map(x=>({s:+(x.s+d).toFixed(3),e:+(x.e+d).toFixed(3)})); if(TL.E[i]!=null) TL.E[i]=+(TL.E[i]+d).toFixed(3); };
     draw();
     let dm=null;
-    marks.addEventListener('pointerdown',e=>{ const m=e.target.closest('.tl-m'); if(!m) return; e.preventDefault(); TL.sel=+m.dataset.i; dm={x0:e.clientX,t0:TL.T[TL.sel],moved:false}; m.setPointerCapture(e.pointerId); renderSel(); });
+    marks.addEventListener('pointerdown',e=>{ const m=e.target.closest('.tl-m'); if(!m) return; e.preventDefault(); TL.sel=+m.dataset.i; TL.wsel=null; dm={x0:e.clientX,t0:TL.T[TL.sel],moved:false}; m.setPointerCapture(e.pointerId); renderSel(); });
     marks.addEventListener('pointermove',e=>{ if(!dm) return; const dx=e.clientX-dm.x0; if(Math.abs(dx)>3) dm.moved=true; move(TL.sel,dm.t0+dx/TL.pps); const m=marks.querySelector(`.tl-m[data-i="${TL.sel}"]`); if(m) m.style.left=TL.T[TL.sel]*TL.pps+'px'; el.querySelector('#tlT').textContent=fmtTag(TL.T[TL.sel]); });
     marks.addEventListener('pointerup',()=>{ if(dm&&dm.moved) renderSel(); dm=null; });
     cv.addEventListener('click',e=>{ const r=cv.getBoundingClientRect(); player.seek((e.clientX-r.left)/TL.pps); player.play(); });
     el.querySelector('#tlPlay').onclick=()=>{ player.playing()?player.pause():player.play(); };
     el.querySelector('#tlZi').onclick=()=>{ TL.pps=Math.min(400,TL.pps*1.6); draw(); };
     el.querySelector('#tlZo').onclick=()=>{ TL.pps=Math.max(10,TL.pps/1.6); draw(); };
-    el.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{ move(TL.sel,TL.T[TL.sel]+(+b.dataset.n)); renderSel(); });
-    el.querySelector('#tlSnap').onclick=()=>{ if(!TL.an){ toast('Still analysing…'); return; } const p=nearestPeak(TL.an.peaks,TL.T[TL.sel],0.35); if(p==null){ toast('No clear onset nearby'); return; } move(TL.sel,p); renderSel(); toast('Snapped to onset'); };
-    el.querySelector('#tlHear').onclick=()=>{ player.seek(Math.max(0,TL.T[TL.sel]-0.8)); player.play(); clearTimeout(TL.stopT); TL.stopT=setTimeout(()=>player.pause(),3600); };
+    el.querySelector('#tlWords').addEventListener('click',e=>{ const b=e.target.closest('[data-wk]'); if(!b) return; const k=+b.dataset.wk; TL.wsel=k<0?null:k; if(TL.wsel!=null){ wordsOf(TL.sel); player.seek(Math.max(0,TL.W[TL.sel][k].s-0.6)); } renderSel(); });
+    el.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{ const i=TL.sel; if(TL.wsel!=null){ const W=wordsOf(i); moveWord(i,TL.wsel,W[TL.wsel].s+(+b.dataset.n)); } else move(i,TL.T[i]+(+b.dataset.n)); renderSel(); });
+    el.querySelector('#tlSnap').onclick=()=>{ if(!TL.an){ toast('Still analysing…'); return; } const i=TL.sel, cur=TL.wsel!=null?wordsOf(i)[TL.wsel].s:TL.T[i]; const p=nearestPeak(TL.an.peaks,cur,0.35); if(p==null){ toast('No clear onset nearby'); return; } if(TL.wsel!=null) moveWord(i,TL.wsel,p); else move(i,p); renderSel(); toast('Snapped to onset'); };
+    el.querySelector('#tlHear').onclick=()=>{ const at=TL.wsel!=null&&TL.W[TL.sel]?TL.W[TL.sel][TL.wsel].s:TL.T[TL.sel]; player.seek(Math.max(0,at-0.8)); player.play(); clearTimeout(TL.stopT); TL.stopT=setTimeout(()=>player.pause(),3600); };
     el.querySelector('#tlAll').onclick=()=>actionSheet('Shift every line',[-0.5,-0.2,-0.1,0.1,0.2,0.5].map(v=>({icon:v<0?'chevrons-left':'chevrons-right',label:(v>0?'+':'')+v+'s',run:()=>{ for(let i=0;i<lines.length;i++){ const d=v; TL.T[i]=+Math.max(0,TL.T[i]+d).toFixed(3); if(TL.W[i]) TL.W[i]=TL.W[i].map(x=>({s:+(x.s+d).toFixed(3),e:+(x.e+d).toFixed(3)})); if(TL.E[i]!=null) TL.E[i]=+(TL.E[i]+d).toFixed(3); } renderSel(); }})));
-    el.querySelector('#tlList').addEventListener('click',e=>{ const r=e.target.closest('[data-k]'); if(!r) return; TL.sel=+r.dataset.k; renderSel(); wrap.scrollLeft=TL.T[TL.sel]*TL.pps-wrap.clientWidth/3; player.seek(Math.max(0,TL.T[TL.sel]-0.8)); });
-    el.querySelector('#tlSave').onclick=()=>{ it.times=TL.T.slice(); it.wt=TL.W.map((w,i)=>w||distributeWords(lines[i],TL.T[i],(TL.E[i]!=null?TL.E[i]:estimateEnds(lines,TL.T,TL.an)[i]),TL.an&&TL.an.peaks)); it.ends=TL.E.length?TL.E:estimateEnds(lines,TL.T,TL.an); markTimed(it); it.updated=Date.now(); SAVE.items(); player.pause(); pop(); toast('Timing saved'); };
+    el.querySelector('#tlList').addEventListener('click',e=>{ const r=e.target.closest('[data-k]'); if(!r) return; TL.sel=+r.dataset.k; TL.wsel=null; renderSel(); wrap.scrollLeft=TL.T[TL.sel]*TL.pps-wrap.clientWidth/3; player.seek(Math.max(0,TL.T[TL.sel]-0.8)); });
+    el.querySelector('#tlSave').onclick=()=>{ it.times=TL.T.slice(); it.wt=TL.W.map((w,i)=>w||distributeWords(lines[i],TL.T[i],(TL.E[i]!=null?TL.E[i]:estimateEnds(lines,TL.T,TL.an)[i]),TL.an&&TL.an.peaks)); it.ends=TL.E.length?TL.E:estimateEnds(lines,TL.T,TL.an); markTimed(it); it.refined=REFINE_V; it.updated=Date.now(); SAVE.items(); player.pause(); pop(); toast('Timing saved'); };
     const loop=()=>{ if(!el.isConnected){ player.pause(); return; } const t=player.time(); head.style.left=t*TL.pps+'px'; el.querySelector('#tlNow').textContent=fmt(t); el.querySelector('#tlPlay').innerHTML=player.playing()?ic('pause','fill'):ic('play','fill'); if(player.playing()){ const x=t*TL.pps; if(x<wrap.scrollLeft||x>wrap.scrollLeft+wrap.clientWidth*0.85) wrap.scrollLeft=x-wrap.clientWidth*0.25; } TL.raf=requestAnimationFrame(loop); };
     cancelAnimationFrame(TL.raf); TL.raf=requestAnimationFrame(loop);
   });
@@ -796,7 +917,7 @@ function audioSheet(forRecord){
       <div class="setrow col"><div class="lbl">${ic('ear','sm')}Echo cancellation<small>Removes the phone’s own speaker from the mic. It is built for calls and can thin out music, so Auto uses it only for the clean digital mix on the speaker. Set before recording.</small></div>
         <div class="chips" id="aAEC">${['auto','on','off'].map(v=>`<button class="chip" data-aec="${v}" aria-pressed="${aecS===v}">${v[0].toUpperCase()+v.slice(1)}</button>`).join('')}</div></div>
       <label class="fld">Mic level <input type="range" id="aMic" min="-12" max="12" step="1" value="${recMicDb()}" aria-label="Microphone level"><output>${(recMicDb()>0?'+':'')+recMicDb()} dB</output></label>
-      ${music&&plan.digital?`<label class="fld">Music in take <input type="range" id="aMus" min="0" max="100" step="5" value="${Math.round(recMusicLevel()*100)}" aria-label="Music level in the recording"><output>${Math.round(recMusicLevel()*100)}%</output></label>`:''}
+      ${music?`<label class="fld">Music volume <input type="range" id="aMus" min="0" max="100" step="1" value="${Math.round(musicVolNow()*100)}" aria-label="Background music volume"><output>${Math.round(musicVolNow()*100)}%</output></label>`:''}
       <div class="aproc" id="aProc">${procNote(plan,proc)}</div>
       <div class="alat"><span>${ic('timer','sm')}Delay compensation <b>${lat} ms</b></span><button class="btn sm" id="aLat">Adjust</button></div>
       ${forRecord?`<button class="btn white block" id="aGo">${ic('circle','fill sm')}Start recording</button>`:`<button class="btn white block" id="aGo">Done</button>`}
@@ -808,7 +929,7 @@ function audioSheet(forRecord){
         const q=x=>wrap.querySelector(x);
         q('#aNC').onclick=()=>{ recSetNC(!recNC()); redraw(); };
         q('#aMic').oninput=e=>{ S.settings.micGain=+e.target.value; SAVE.settings(); e.target.nextElementSibling.textContent=(S.settings.micGain>0?'+':'')+S.settings.micGain+' dB'; };
-        if(q('#aMus')) q('#aMus').oninput=e=>{ S.settings.recMusic=+e.target.value/100; SAVE.settings(); e.target.nextElementSibling.textContent=e.target.value+'%'; };
+        if(q('#aMus')) q('#aMus').oninput=e=>{ setMusicVolume(+e.target.value/100); e.target.nextElementSibling.textContent=e.target.value+'%'; };
         if(q('#aMusic')) q('#aMusic').onclick=()=>{ started=null; close(); musicSheet(()=>audioSheet(forRecord).then(res)); };
         q('#aLat').onclick=()=>{ close(); openLatencyCheck(); };
         q('#aGo').onclick=()=>{ started=true; S.settings.routeSeen={...(S.settings.routeSeen||{}),[r+(music?':m':'')]:true}; SAVE.settings(); close(); };
