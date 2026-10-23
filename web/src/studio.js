@@ -19,8 +19,8 @@ const VOICES=[
 ];
 const FILTER_OK=(()=>{ try{ const g=document.createElement('canvas').getContext('2d'); g.filter='grayscale(1)'; return g.filter==='grayscale(1)'; }catch(e){ return false; } })();
 const stVideo=$('#stVideo'), stCanvas=$('#stCanvas');
-stVideo.removeAttribute('hidden'); Object.assign(stVideo.style,{position:'fixed',left:'-10000px',top:'0',width:'4px',height:'4px',opacity:'0',pointerEvents:'none'});
 stVideo.playsInline=true; stVideo.muted=true;
+let UI_FONT=''; const uiFont=()=>UI_FONT||(UI_FONT=getComputedStyle(document.body).fontFamily);
 
 function delayBuf(c,active,fade,up){ const sr=c.sampleRate,l1=active*sr|0,l2=(active-2*fade)*sr|0,len=l1+l2,b=c.createBuffer(1,len,sr),p=b.getChannelData(0); for(let i=0;i<l1;i++) p[i]=up?(l1-i)/len:i/l1; return b; }
 function fadeBuf(c,active,fade){ const sr=c.sampleRate,l1=active*sr|0,l2=(active-2*fade)*sr|0,len=l1+l2,fl=fade*sr|0,i2=l1-fl,b=c.createBuffer(1,len,sr),p=b.getChannelData(0); for(let i=0;i<l1;i++) p[i]=i<fl?Math.sqrt(i/fl):i>=i2?Math.sqrt(1-(i-i2)/fl):1; return b; }
@@ -125,8 +125,8 @@ function stPlay(){
   stVideo.play().catch(()=>{});
   $('#stPrev').classList.add('playing');
 }
-function stPause(){ if(ST.playing){ ST.pos=stNow(); } ST.playing=false; stopSources(); stVideo.pause(); $('#stPrev').classList.remove('playing'); drawFrame(); }
-function stSeek(t){ const was=ST.playing; if(was){ stopSources(); ST.playing=false; } ST.pos=Math.max(0,Math.min(ST.dur,t)); try{ stVideo.currentTime=ST.pos; }catch(e){} if(was) stPlay(); else drawFrame(); }
+function stPause(){ if(ST.playing){ ST.pos=stNow(); } ST.playing=false; stopSources(); stVideo.pause(); $('#stPrev').classList.remove('playing'); stVideo.playbackRate=1; drawCapLayer(true); }
+function stSeek(t){ const was=ST.playing; if(was){ stopSources(); ST.playing=false; } ST.pos=Math.max(0,Math.min(ST.dur,t)); try{ stVideo.currentTime=ST.pos; }catch(e){} if(was) stPlay(); else drawCapLayer(true); }
 function restartIfPlaying(){ if(ST.playing){ const t=stNow(); stopSources(); startSources(t); } }
 function seekTo(t){ return new Promise(r=>{ let d=false; const fin=()=>{ if(d) return; d=true; stVideo.removeEventListener('seeked',fin); r(); }; stVideo.addEventListener('seeked',fin); ST.pos=t; try{ stVideo.currentTime=t; }catch(e){ fin(); } setTimeout(fin,1500); }); }
 function applyMix(){ if(!ST.ctx) return; const t=ST.ctx.currentTime; ST.voiceGain.gain.setTargetAtTime(ST.e.vVol,t,0.02); ST.musicGain.gain.setTargetAtTime(ST.hasMusic?ST.e.mVol:0,t,0.02); }
@@ -155,7 +155,7 @@ async function openStudio(blob,meta,opts={}){
   $('#stSeek').max=ST.dur||1; $('#stDur').textContent=fmt(ST.dur);
   await seekTo(Math.min(0.4,(ST.dur||1)/2)); grabThumbFrame(); drawFrame(); await seekTo(0); drawFrame();
   if(ST.draftId&&ST.thumbFrame){ try{ const c=document.createElement('canvas'); c.width=160; c.height=Math.round(160*stCanvas.height/stCanvas.width); c.getContext('2d').drawImage(ST.thumbFrame,0,0,c.width,c.height); saveDraftEdit(ST.draftId,ST.e,{thumb:c.toDataURL('image/jpeg',.7),dur:ST.dur}); }catch(e){} }
-  renderStPanel(); stLoop();
+  applyLook(); renderStPanel(); stLoop();
   if(ST.ctx){
     try{ const raw=await decodeIn(ST.ctx,blob); if(raw.duration<0.3) throw new Error('no audio'); ST.bufs.set('take',{raw}); if(!ST.dur||!isFinite(ST.dur)) ST.dur=raw.duration; }
     catch(e){ ST.mode='element'; try{ ST.elemSrc=ST.elemSrc||ST.ctx.createMediaElementSource(stVideo); ST.elemIn=true; stVideo.muted=false; }catch(_){} }
@@ -209,14 +209,20 @@ function drawFrame(){
   if(F.glow&&FILTER_OK){ g.globalAlpha=.28; g.globalCompositeOperation='screen'; g.filter='blur('+Math.round(w/60)+'px)'; g.drawImage(stCanvas,0,0); g.filter='none'; g.globalAlpha=1; g.globalCompositeOperation='source-over'; }
   if(ST.e.vignette||F.vig){ const vg=g.createRadialGradient(w/2,h/2,Math.min(w,h)*.35,w/2,h/2,Math.max(w,h)*.72); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,.6)'); g.fillStyle=vg; g.fillRect(0,0,w,h); }
   if(ST.e.grain||F.grain){ if(!GRAIN) GRAIN=g.createPattern(noiseCanvas(),'repeat'); g.save(); g.globalAlpha=.12; g.globalCompositeOperation='overlay'; g.translate(Math.random()*128|0,Math.random()*128|0); g.fillStyle=GRAIN; g.fillRect(-128,-128,w+256,h+256); g.restore(); }
+  drawCaptions(g,w,h,stNow());
+  if(ST.e.watermark) drawMark(g,w,h);
+}
+/* Returns the index of the caption shown at time t, or -1. */
+function capAt(t){ const caps=ST.meta&&ST.meta.captions; if(!(ST.e.captions&&caps&&caps.length)) return -1; let i=-1; for(let k=0;k<caps.length;k++){ if(caps[k].t<=t) i=k; else break; } return i>=0&&t<(caps[i+1]?caps[i+1].t:caps[i].e+2)?i:-1; }
+function drawCaptions(g,w,h,t){
   const caps=ST.meta&&ST.meta.captions;
   if(ST.e.captions&&caps&&caps.length){
-    const t=stNow(); let i=-1; for(let k=0;k<caps.length;k++){ if(caps[k].t<=t) i=k; else break; }
+    let i=-1; for(let k=0;k<caps.length;k++){ if(caps[k].t<=t) i=k; else break; }
     if(i>=0 && t<(caps[i+1]?caps[i+1].t:caps[i].e+2)){
       const c=caps[i], fs=Math.round(Math.min(w,h)*.055);
       let f=clamp01((t-c.t)/Math.max(.3,c.e-c.t));
       if(c.w&&c.w.length){ const ws=c.text.split(/\s+/).filter(Boolean); if(ws.length===c.w.length){ const L=ws.reduce((a,x)=>a+x.length+1,0); let acc=0; ws.forEach((x,k)=>{ acc+=(x.length+1)*clamp01((t-c.w[k].s)/Math.max(.05,c.w[k].e-c.w[k].s)); }); f=acc/L; } }
-      g.font=`700 ${fs}px ${getComputedStyle(document.body).fontFamily}`; g.textAlign='center'; g.textBaseline='middle';
+      g.font=`700 ${fs}px ${uiFont()}`; g.textAlign='center'; g.textBaseline='middle';
       const lines=wrapText(g,c.text,w*.84), lh=fs*1.25, total=lines.length*lh, y0=h*.86-total/2;
       const bw=Math.min(w*.92,Math.max(...lines.map(l=>g.measureText(l).width))+fs*1.2);
       g.fillStyle='rgba(0,0,0,.5)'; roundRectPath(g,(w-bw)/2,y0-fs*.45,bw,total+fs*.3,fs*.5); g.fill();
@@ -227,26 +233,69 @@ function drawFrame(){
         if(p>0){ g.save(); g.beginPath(); g.rect(x0,y-fs,p,fs*2); g.clip(); g.fillStyle='#fff'; g.fillText(l,w/2,y); g.restore(); } });
     }
   }
-  if(ST.e.watermark){ const fs=Math.round(Math.min(w,h)*.028); g.font=`600 ${fs}px ${getComputedStyle(document.body).fontFamily}`; g.textAlign='right'; g.textBaseline='bottom'; g.fillStyle='rgba(255,255,255,.75)'; g.shadowColor='rgba(0,0,0,.5)'; g.shadowBlur=6; g.fillText('● Lectern',w-fs*1.1,h-fs*1.1); g.shadowBlur=0; }
+}
+function drawMark(g,w,h){ { const fs=Math.round(Math.min(w,h)*.028); g.font=`600 ${fs}px ${uiFont()}`; g.textAlign='right'; g.textBaseline='bottom'; g.fillStyle='rgba(255,255,255,.75)'; g.shadowColor='rgba(0,0,0,.5)'; g.shadowBlur=6; g.fillText('● Lectern',w-fs*1.1,h-fs*1.1); g.shadowBlur=0; }
 }
 function wrapText(g,text,maxW){ const words=text.split(/\s+/), out=[]; let line=''; words.forEach(wd=>{ const t=line?line+' '+wd:wd; if(g.measureText(t).width>maxW&&line){ out.push(line); line=wd; } else line=t; }); if(line) out.push(line); return out.slice(0,3); }
 function roundRectPath(g,x,y,w,h,r){ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+/* ---------- Preview: GPU-composited video + light overlays ----------
+   The preview is the video element itself with the colour filter applied as a CSS
+   filter (composited on the GPU) and tint, vignette and grain as overlay layers.
+   Only the lyric caption is drawn per frame, on a small transparent canvas.
+   The full canvas pipeline is used just for rendering the final video. */
+let GRAIN_URL='';
+function applyLook(){
+  const F=FILTERS.find(f=>f.id===ST.e.filter)||FILTERS[0];
+  stVideo.style.filter=(F.css==='none'?'':F.css)+(F.glow?' brightness(1.05)':'');
+  stVideo.style.transform=ST.e.mirror?'scaleX(-1)':'';
+  const tint=$('#stTint'); tint.hidden=!F.tint; if(F.tint) tint.style.background=F.tint.replace(/[\d.]+\)$/,m=>Math.min(1,parseFloat(m)*2.2)+')');
+  $('#stVig').hidden=!(ST.e.vignette||F.vig);
+  const gr=$('#stGrain'); gr.hidden=!(ST.e.grain||F.grain); if(!gr.hidden&&!GRAIN_URL){ try{ GRAIN_URL=noiseCanvas().toDataURL(); gr.style.backgroundImage=`url(${GRAIN_URL})`; }catch(e){} }
+  $('#stMark').hidden=!ST.e.watermark;
+  drawCapLayer(true);
+}
+const CAPL={last:-2,at:0};
+function drawCapLayer(force){
+  const cv=$('#stCap'); if(!cv) return;
+  const t=stNow(), i=capAt(t), now=performance.now();
+  if(!force&&i===-1&&CAPL.last===-1) return;
+  if(!force&&now-CAPL.at<33) return;
+  CAPL.at=now; CAPL.last=i;
+  const r=cv.getBoundingClientRect(), dpr=Math.min(2,devicePixelRatio||1), W=Math.max(1,Math.round(r.width*dpr)), H=Math.max(1,Math.round(r.height*dpr));
+  if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
+  const g=cv.getContext('2d'); g.clearRect(0,0,W,H); if(i>=0) drawCaptions(g,W,H,t);
+}
+/* Keep the video on the audio clock without seeking: speed it up or slow it down by up
+   to 10% until it catches up. Only a large gap (after a stall) jumps, at most every 1.5 s. */
+const VSYNC={media:null,at:0,lastSeek:0};
+function videoTime(){ return VSYNC.media!=null&&performance.now()-VSYNC.at<250?VSYNC.media+(performance.now()-VSYNC.at)/1000*stVideo.playbackRate:stVideo.currentTime; }
+function syncVideo(t){
+  if(ST.mode!=='buffer') return;
+  const d=videoTime()-t, now=performance.now();
+  if(Math.abs(d)>0.75&&now-VSYNC.lastSeek>1500){ VSYNC.lastSeek=now; VSYNC.media=null; try{ stVideo.currentTime=Math.min(ST.dur,t+0.08); }catch(e){} stVideo.playbackRate=1; return; }
+  const r=Math.abs(d)<0.03?1:Math.max(0.9,Math.min(1.1,1-d*0.8));
+  if(Math.abs(stVideo.playbackRate-r)>0.01) try{ stVideo.playbackRate=r; }catch(e){}
+  if(stVideo.paused&&!stVideo.ended) stVideo.play().catch(()=>{});
+}
+const HAS_RVFC='requestVideoFrameCallback' in HTMLVideoElement.prototype;
+function onVideoFrame(now,meta){ VSYNC.media=meta.mediaTime; VSYNC.at=performance.now(); if(ST.exporting) drawFrame(); stVideo.requestVideoFrameCallback(onVideoFrame); }
+if(HAS_RVFC) stVideo.requestVideoFrameCallback(onVideoFrame);
 function stLoop(){
   cancelAnimationFrame(ST.raf);
   const step=()=>{ if($('#studio').hidden&&!ST.exporting) return;
     const t=stNow();
     if(ST.playing){
       if(t>=ST.dur-0.03){ if(ST.exporting){ ST.pos=ST.dur; } else { stPause(); ST.pos=0; try{ stVideo.currentTime=0; }catch(e){} } }
-      // video follows the audio clock
-      else if(ST.mode==='buffer'&&Math.abs(stVideo.currentTime-t)>0.12){ try{ stVideo.currentTime=t; }catch(e){} }
-      drawFrame(); if(ST.tab==='tracks') drawLanes();
+      else syncVideo(t);
+      if(ST.exporting){ if(!HAS_RVFC) drawFrame(); } else drawCapLayer();
+      if(ST.tab==='tracks') moveLaneHead(t);
     }
     $('#stNow').textContent=fmt(t); if(!ST.seeking) $('#stSeek').value=t;
     if(ST.exporting){ const p=Math.round(clamp01(t/(ST.dur||1))*100); $('#rRing').style.setProperty('--p',p); $('#rPct').textContent=p+'%'; }
     ST.raf=requestAnimationFrame(step); };
   ST.raf=requestAnimationFrame(step);
 }
-stVideo.addEventListener('seeked',()=>{ if(!ST.playing) drawFrame(); });
+stVideo.addEventListener('seeked',()=>{ if(!ST.playing){ drawCapLayer(true); if(ST.tab==='tracks') moveLaneHead(ST.pos); } });
 $('#stPP').onclick=()=>{ if(ST.exporting) return; ST.playing?stPause():stPlay(); };
 const stSeekEl=$('#stSeek');
 stSeekEl.addEventListener('pointerdown',()=>ST.seeking=true); stSeekEl.addEventListener('pointerup',()=>ST.seeking=false);
@@ -299,7 +348,7 @@ const fmtParam=(x,q)=>(Math.abs(q.step)<1?(+x).toFixed(1):Math.round(x))+q.unit;
 /* ---------- Tracks: lanes, selection and per-track tools ---------- */
 function renderTracks(p){
   const tr=ST.e.tracks, t=selTrack(), len=trackLen(t), r=regionOf(t);
-  p.innerHTML=`<div class="lanes" id="lanes"><canvas id="lanesCv"></canvas></div>
+  p.innerHTML=`<div class="lanes" id="lanes"><canvas id="lanesCv"></canvas><i class="lanes-head" id="lanesHead"></i></div>
     <div class="trk-add"><button class="btn sm" id="tkDup">${ic('copy','xs')}Duplicate</button><button class="btn sm" id="tkSplit">${ic('scissors','xs')}Split at playhead</button><button class="btn sm white" id="tkRec">${ic('mic','xs')}Record a layer</button></div>
     <div class="card trk" style="margin:12px 20px 0">
       <div class="trk-h"><input class="trk-name" id="tkName" value="${esc(t.name)}" maxlength="24" aria-label="Track name">
@@ -333,8 +382,9 @@ function drawLanes(){
     g.globalAlpha=1; g.fillStyle='#fff'; g.font='600 11px '+getComputedStyle(document.body).fontFamily; g.fillText(t.name+(t.fx!=='none'?' · '+fxName(t.fx):''),Math.max(6,x0+6),y+14);
     y+=LANE_H; });
   if(ST.musicBuf){ const a=musicAt(); g.fillStyle='rgba(251,146,60,.18)'; roundRectPath(g,x(Math.max(0,a)),y+3,W-x(Math.max(0,a)),22,6); g.fill(); g.fillStyle='#FDBA74'; g.font='600 11px '+getComputedStyle(document.body).fontFamily; g.fillText('Music',x(Math.max(0,a))+6,y+18); }
-  g.fillStyle='#fff'; g.fillRect(x(stNow()),0,1.5,H);
+  moveLaneHead(stNow());
 }
+function moveLaneHead(t){ const h=$('#lanesHead'), cv=$('#lanesCv'); if(!h||!cv) return; h.style.transform='translateX('+(t/Math.max(ST.dur,1)*cv.clientWidth).toFixed(1)+'px)'; }
 function laneAt(ev){ const cv=$('#lanesCv'), r=cv.getBoundingClientRect(); const i=Math.floor((ev.clientY-r.top-4)/LANE_H); return {t:ST.e.tracks[i]||null,time:(ev.clientX-r.left)/r.width*Math.max(ST.dur,1)}; }
 let LDRAG=null;
 $('#stPanel').addEventListener('pointerdown',e=>{ if(!e.target.closest('#lanesCv')) return; const {t,time}=laneAt(e); if(!t) return; ST.e.sel=t.id; LDRAG={t,x0:e.clientX,at0:t.at,moved:false,time}; e.target.setPointerCapture(e.pointerId); drawLanes(); });
@@ -387,11 +437,11 @@ async function recordLayer(){
 $('.st-tabs').addEventListener('click',e=>{ const b=e.target.closest('[data-p]'); if(!b) return; ST.tab=b.dataset.p; renderStPanel(); });
 $('#stPanel').addEventListener('click',e=>{
   const pk=e.target.closest('[data-pick]'); if(pk){ ST.e.sel=pk.dataset.pick; renderStPanel(); return; }
-  const f=e.target.closest('[data-f]'); if(f){ ST.e.filter=f.dataset.f; $$('[data-f]').forEach(x=>x.setAttribute('aria-pressed',String(x===f))); drawFrame(); persistEdit(); return; }
+  const f=e.target.closest('[data-f]'); if(f){ ST.e.filter=f.dataset.f; $$('[data-f]').forEach(x=>x.setAttribute('aria-pressed',String(x===f))); applyLook(); persistEdit(); return; }
   const v=e.target.closest('[data-v]'); if(v){ const t=selTrack(); t.fx=v.dataset.v; t.fxv=fxDefaults(t.fx); dropChain(t.id); if(ST.ctx) ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); if(!ST.playing) stPlay(); persistEdit(); renderStPanel(); return; }
   if(e.target.closest('[data-fxreset]')){ const t=selTrack(); t.fxv=fxDefaults(t.fx); dropChain(t.id); ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); persistEdit(); renderStPanel(); return; }
   const x=e.target.closest('[data-x]'); if(x&&!x.disabled){ const k=x.dataset.x; ST.e[k]=!ST.e[k]; x.setAttribute('aria-checked',String(ST.e[k]));
-    if(k==='clean'||k==='enhance'){ rebuildVoiceChain(); if(ST.e[k]) runClean(); renderStPanel(); } else drawFrame();
+    if(k==='clean'||k==='enhance'){ rebuildVoiceChain(); if(ST.e[k]) runClean(); renderStPanel(); } else applyLook();
     persistEdit(); return; }
   const nd=e.target.closest('[data-nudge]'); if(nd){ const t=selTrack(); if(t.lock) return; t.at=+(t.at+(+nd.dataset.nudge)).toFixed(3); restartIfPlaying(); persistEdit(); renderStPanel(); return; }
   const id=e.target.closest('button')&&e.target.closest('button').id;
@@ -437,7 +487,7 @@ async function stRender(){
   rec.start(500); stPlay();
   await new Promise(r=>{ const iv=setInterval(()=>{ if(ST.cancel||stNow()>=ST.dur-0.04){ clearInterval(iv); r(); } },100); });
   await new Promise(r=>setTimeout(r,250));
-  stPause(); try{ rec.stop(); }catch(e){} await stopped;
+  stPause(); stVideo.playbackRate=1; try{ rec.stop(); }catch(e){} await stopped;
   vs.getTracks().forEach(t=>t.stop());
   ST.exporting=false; $('#render').hidden=true;
   if(ST.cancel){ toast('Render cancelled'); await seekTo(0); ST.pos=0; drawFrame(); return; }

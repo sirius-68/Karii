@@ -190,7 +190,7 @@ function openLyricPad(id,beatId){
         <textarea class="title-in" id="lpTitle" rows="1" placeholder="Song title" maxlength="80">${esc(s.title)}</textarea>
         <div class="grp" style="margin-top:16px"><div class="grow">${nm?`<button class="circ sm mt" data-act="music-toggle" data-id="${s.id}" aria-label="Play or pause the beat">${ic('eighth-notes','sm')}</button>`:`<span class="circ sm">${ic('drum','sm')}</span>`}<div class="lbl"><b>${esc(nm||'No beat yet')}</b><small>${b&&b.bpm?b.bpm+' BPM · lines snap to bars':nm?'Tempo is detected from the audio':'Pick a beat you made or an instrumental'}</small></div><div class="acts"><button class="btn sm" data-act="music-pick" data-id="${s.id}">Choose</button></div></div></div>
         <div class="h3">Lyrics <small id="lpCount"></small></div>
-        <div class="chips" style="margin-bottom:10px">${['Verse','Pre-chorus','Chorus','Bridge','Outro'].map(x=>`<button class="chip" data-sec="${x}" style="min-height:30px;padding:4px 11px;font-size:.84rem">${ic('plus','xs')}${x}</button>`).join('')}</div>
+        <div class="chips" style="margin-bottom:10px">${['Verse','Pre-chorus','Chorus','Bridge','Outro'].map(x=>`<button class="chip" data-sec="${x}">${ic('plus','xs')}${x}</button>`).join('')}</div>
         <textarea class="body-in song" id="lpBody" placeholder="Write one lyric line per row.&#10;Tip: keep lines in a section to similar syllable counts.">${esc(s.body)}</textarea>
         <div class="lp-info" id="lpInfo"></div>
         <div class="rhymes" id="lpRh"></div>

@@ -476,7 +476,19 @@ body.no-tabbar #mini{bottom:calc(var(--sab) + 12px)}
 .st-top{display:flex;align-items:center;gap:10px;padding:0 14px}
 .st-top h1{flex:1;margin:0;text-align:center;font-size:1.08rem;font-weight:600}
 .st-prev{position:relative;margin:12px auto 0;width:calc(100% - 40px);max-height:56vh;aspect-ratio:9/16;border-radius:20px;overflow:hidden;background:#000;display:grid;place-items:center}
-.st-prev canvas{width:100%;height:100%;object-fit:contain;display:block}
+.st-prev>canvas{display:none}
+.st-view{position:absolute;inset:0;overflow:hidden;contain:strict}
+.st-view video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;background:#000;will-change:filter,transform}
+.st-view>i,.st-view>canvas,.st-view>span{position:absolute;inset:0;pointer-events:none}
+.st-view>canvas{width:100%;height:100%}
+.st-tint{mix-blend-mode:soft-light}
+.st-vig{background:radial-gradient(ellipse at center,rgba(0,0,0,0) 45%,rgba(0,0,0,.6) 100%)}
+.st-grain{opacity:.12;mix-blend-mode:overlay;background-size:128px 128px;animation:grainMove .5s steps(4) infinite}
+@keyframes grainMove{0%{background-position:0 0}25%{background-position:-37px 21px}50%{background-position:53px -44px}75%{background-position:-18px 67px}100%{background-position:0 0}}
+.st-mark{inset:auto 3.5% 3% auto!important;font-weight:600;font-size:clamp(9px,2.6vw,13px);color:rgba(255,255,255,.75);text-shadow:0 1px 6px rgba(0,0,0,.5)}
+.st-view>[hidden]{display:none}
+.lanes{position:relative}
+.lanes-head{position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-1px;background:#fff;pointer-events:none;will-change:transform}
 .st-prev .pp{position:absolute;inset:0;display:grid;place-items:center;transition:opacity .2s}
 .st-prev .pp span{width:64px;height:64px;border-radius:50%;background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);display:grid;place-items:center}
 .st-prev.playing .pp{opacity:0}
@@ -763,3 +775,64 @@ html:has(#stage:not([hidden])) #np,html:has(#studio:not([hidden])) #np,html:has(
 .fxp .mixrow .ml,.trk .mixrow .ml,.polish .mixrow .ml{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fxp .mixrow input,.trk .mixrow input,.polish .mixrow input{width:100%;min-width:0}
 .fxp .mixrow output,.trk .mixrow output,.polish .mixrow output{text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums}
+
+/* =====================================================================
+   Layout & touch foundations (UI audit)
+   Shared rules that fix whole classes of issues rather than single screens:
+   minimum tap areas, flex items that can shrink, text that wraps or
+   truncates instead of spilling, and compact variants for narrow phones.
+   ===================================================================== */
+:root{--tap:40px;--gutter:20px}
+/* Flex children must be allowed to shrink below their content width */
+.sfield,.sfield>*{min-width:0}
+.sfield input{width:0;flex:1 1 auto}
+.sfield .circ{flex:none}
+textarea.title-in{display:block;width:100%;max-width:100%}
+.ed .head textarea.title-in{width:auto}
+/* Minimum touch targets on shared controls */
+.chip{min-width:var(--tap);justify-content:center}
+.sec-h .more,.lib-h .flt{min-height:var(--tap);padding:0 6px;margin-right:-6px;border-radius:10px}
+.toggle::before{content:"";position:absolute;inset:-8px -6px}
+.kebab{min-width:var(--tap);min-height:var(--tap)}
+/* Text that must not spill */
+.hero h3,.hero p{padding-right:64px}
+.hero p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btile{font-size:clamp(.9rem,3.6vw,1.05rem);overflow-wrap:anywhere;padding-right:46px}
+.pname h1{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:clamp(1.35rem,6.2vw,1.9rem);line-height:1.1}
+.chords4 button small{font-size:.72rem}
+.st-mark{font-size:clamp(10px,2.6vw,13px)}
+/* Sticky bottom actions take less room on short screens */
+.foot{padding-top:18px}
+@media (max-height:700px){.foot{padding-top:12px;padding-bottom:calc(var(--sab) + 12px)}}
+/* Editor tabs: icon over label on narrow phones so all five fit */
+@media (max-width:430px){
+  .st-tabs{gap:4px;margin:14px 16px 0}
+  .st-tabs button{flex:1 1 0;min-width:0;height:50px;flex-direction:column;gap:3px;font-size:.72rem;padding:0 2px}
+}
+/* Beat grid: two lines of eight steps per drum (pages are at most 480px wide, so sixteen
+   columns made cells too small to tap on every device) */
+.grid16{grid-template-columns:44px repeat(8,1fr);row-gap:5px}
+.grid16 .rl{grid-row:span 2;align-self:center}
+.grid16 button{aspect-ratio:auto;min-height:40px}
+.grid16 button:nth-child(17n+10){grid-column-start:2;margin-left:0}
+.grid16 button:nth-child(17n+6),.grid16 button:nth-child(17n+14){margin-left:3px}
+.trk-h .chip{min-height:36px}
+#np .np-x{width:36px;height:36px}
+#handle{min-width:40px}
+}
+/* Short landscape screens: keep primary controls in view */
+@media (max-height:500px){
+  .foot{position:static;background:none;padding-top:8px}
+  .sy-lines{min-height:0;padding:10px 6px}
+  .sy-tap{width:96px;height:96px;font-size:1.1rem}
+  .sy-ctl{margin-top:8px}
+}
+/* Profile header on narrow phones: long names break instead of ellipsizing every word,
+   the Edit button becomes icon-only, and the streak pill stays on one line. */
+.pname h1{overflow-wrap:anywhere}
+.streak{white-space:nowrap}
+@media (max-width:400px){
+  .pid{gap:12px}
+  .pid .btn{width:44px;min-width:44px;padding:0;font-size:0;gap:0;justify-content:center}
+  .pid .btn svg{width:18px;height:18px}
+}
