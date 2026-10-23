@@ -233,12 +233,13 @@ function pickMime(forExport){ if(!window.MediaRecorder) return null;
   const mp4=['video/mp4;codecs=avc1,mp4a.40.2','video/mp4'], webm=['video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm'];
   return (forExport?[...mp4,...webm]:[...webm,...mp4]).find(t=>MediaRecorder.isTypeSupported(t))||''; }
 function countdown(n){ return new Promise(res=>{ const el=$('#count'); if(n<=0){ res(); return; } el.hidden=false; let i=n; el.textContent=i; const iv=setInterval(()=>{ if(state!=='counting'){ clearInterval(iv); el.hidden=true; res(); return; } i--; if(i<=0){ clearInterval(iv); el.hidden=true; res(); } else el.textContent=i; },1000); }); }
-let recMixed=false, mic=null, meter=null, meterRaf=0, recStartPerf=0, musicOffset=0, musicMarked=false, stemRec=null, stemChunks=[], stemMime='', recDelay=0;
+let recMixed=false, recLive=false, recPlanNow=null, mic=null, meter=null, meterRaf=0, recStartPerf=0, musicOffset=0, musicMarked=false, stemRec=null, stemChunks=[], stemMime='', recDelay=0;
 async function startRecording(){
   if(!camOK){ toast('The camera isn’t available, so you can only rehearse.'); return; }
   const m=pickMime(); if(m===null){ toast('This device can’t record video.'); return; }
   if(!(await audioCheck())) return;
   if(TTS.on){ narratorStop(); toast('The narrator pauses while you record'); }
+  musicPreviewStop();
   if(songMode){ ac().resume(); player.pause(); player.seek(0); K.idx=-2; updateKara(); }
   else { bed.audio.pause(); try{ bed.audio.currentTime=0; }catch(e){} }
   rehearsing=false; state='counting'; pos=0; scroller.scrollTop=0; syncUI();
@@ -249,7 +250,11 @@ async function startRecording(){
     REC.mirrorBuf=null;
     if(songMode&&guideable(A)&&S.settings.guide){ try{ const k=musicKey(A,false); let b=BUFS.get(k); if(!b){ const blob=await musicBlobFor(A,false); b=await decodeBlob(blob); cacheBuf(k,b); } REC.mirrorBuf=b; }catch(e){ REC.mirrorBuf=null; } }
   })();
-  try{ mic=await openMic(); }catch(e){ mic=null; }
+  // One capture strategy per take (see rec.js), so the same sound is never recorded twice.
+  const hasMusic=songMode?(player.hasAudio&&!(A.kind==='line'&&voiceOf(A)==='dub')):!!bed.id;
+  let plan=recPlan(hasMusic);
+  try{ mic=await openMic(plan); }catch(e){ mic=null; }
+  if(mic){ REC.proc=micProcessing(mic); procWarn(plan); }
   if(state!=='counting'){ closeMic(); return; }
   if(!mic) toast('Microphone unavailable, so this take will have no voice');
   else { mic.getAudioTracks().forEach(t=>t.addEventListener('ended',()=>{ if(state==='recording'){ pauseToggle(); toast('The microphone was interrupted, so recording paused'); } })); startMeter(); }
@@ -259,16 +264,18 @@ async function startRecording(){
   if(state!=='counting'){ closeMic(); return; }
   mime=m; chunks=[]; stemChunks=[]; musicOffset=0; musicMarked=false;
   // Mix voice and in-app music inside the app (see rec.js); keep a voice-only stem for the editor.
-  const hasMusic=songMode?(player.hasAudio&&!(A.kind==='line'&&voiceOf(A)==='dub')):!!bed.id;
-  let g=null; try{ if(mic||hasMusic) g=recStart(mic); }catch(e){ g=null; }
-  recDelay=g?g.delay.delayTime.value:0; recMixed=!!g;
+  // Without a mic, in-app music can only reach the take digitally.
+  if(!mic&&hasMusic&&!plan.digital) plan={...plan,mode:'mix',digital:true};
+  let g=null; try{ if(mic||hasMusic) g=await recStart(mic,plan); }catch(e){ g=null; }
+  if(state!=='counting'){ closeMic(); return; }
+  recPlanNow=plan; recDelay=g&&g.delay?g.delay.delayTime.value:0; recMixed=!!(g&&plan.digital); recLive=!!g;
   const tracks=[...stream.getVideoTracks(),...(g?g.dest.stream.getAudioTracks():mic?mic.getAudioTracks():[])];
   stemRec=null; stemMime='';
   if(g&&mic){ stemMime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(x=>MediaRecorder.isTypeSupported(x))||'';
     try{ stemRec=new MediaRecorder(g.stemDest.stream,stemMime?{mimeType:stemMime,audioBitsPerSecond:160000}:undefined); stemRec.ondataavailable=e=>{ if(e.data&&e.data.size) stemChunks.push(e.data); }; }catch(e){ stemRec=null; } }
   try{ recorder=new MediaRecorder(new MediaStream(tracks),m?{mimeType:m,videoBitsPerSecond:6000000,audioBitsPerSecond:192000}:undefined); }
-  catch(e){ try{ recorder=new MediaRecorder(new MediaStream(tracks)); }catch(e2){ state='idle'; closeMic(); syncUI(); toast('Couldn’t start recording on this device.'); return; } }
-  liveBegin({itemId:A.id,title:titleOf(A),kind:A.kind,mime:(m||'video/webm').split(';')[0],musicVol:songMode?1:S.settings.bedVol/100,mixed:!!g});
+  catch(e){ try{ recorder=new MediaRecorder(new MediaStream(tracks)); }catch(e2){ state='idle'; recLive=false; closeMic(); syncUI(); toast('Couldn’t start recording on this device.'); return; } }
+  liveBegin({itemId:A.id,title:titleOf(A),kind:A.kind,mime:(m||'video/webm').split(';')[0],musicVol:songMode?1:S.settings.bedVol/100,mixed:recMixed,mode:plan.mode});
   recorder.ondataavailable=e=>{ if(e.data&&e.data.size){ chunks.push(e.data); liveChunk(e.data); } };
   recorder.onstop=onRecorded;
   recorder.onerror=()=>{ toast('Recording hit a problem. Saving what was captured.'); try{ if(recorder.state!=='inactive') recorder.stop(); }catch(e){} };
@@ -277,7 +284,7 @@ async function startRecording(){
   recorder.onstart=()=>{ if(songMode) markMusicStart(); };
   recorder.start(1000); if(stemRec) try{ stemRec.start(1000); }catch(e){ stemRec=null; }
   if(songMode){ player.play(); if(REC.attachPlayer) REC.attachPlayer(); }
-  else if(!songMode) musicOffset=recDelay;
+  else if(!songMode) musicOffset=recMixed?recDelay:0;
   elapsed=0; tStart=performance.now(); state='recording'; lockScreen(); bedSync(); syncUI();
   clockT=setInterval(drawClock,250);
   if(songMode) requestAnimationFrame(markMusicStart);
@@ -287,11 +294,11 @@ async function startRecording(){
 function markMusicStart(){
   if(musicMarked||!player.on) return;
   const c=ac(); const startPerf=performance.now()+(player.t0-c.currentTime)*1000;
-  musicOffset=Math.max(0,Math.min(2,(startPerf-recStartPerf)/1000+(REC.on?recDelay:outLat()+extraLatency())-player.off));
+  musicOffset=Math.max(0,Math.min(2,(startPerf-recStartPerf)/1000+(recMixed?recDelay:outLat()+extraLatency())-player.off));
   musicMarked=true;
   store.set('lectern.live',{...(store.get('lectern.live',{})||{}),musicOffset});
 }
-function closeMic(){ stopMeter(); if(state==='counting'||!recMixed) recStop(); if(mic){ mic.getTracks().forEach(t=>t.stop()); mic=null; } releaseMicRoute(); }
+function closeMic(){ stopMeter(); if(!recLive) recStop(); if(mic){ mic.getTracks().forEach(t=>t.stop()); mic=null; } releaseMicRoute(); }
 function startMeter(){
   stopMeter(); try{ meter=levelMeter(mic); }catch(e){ meter=null; return; }
   const bar=$('#lvl'), fill=$('#lvlFill'); bar.hidden=false; let warned=0;
@@ -333,7 +340,7 @@ async function onRecorded(){
   // the voice stem recorder stops on its own event; give it a moment to flush
   if(stemRec){ if(stemRec.state!=='inactive') await new Promise(r=>{ stemRec.onstop=r; try{ stemRec.stop(); }catch(e){ r(); } setTimeout(r,1500); }); else await new Promise(r=>setTimeout(r,120)); }
   const stem=stemChunks.length?new Blob(stemChunks,{type:(stemRec&&stemRec.mimeType||stemMime||'audio/webm').split(';')[0]}):null;
-  const mixed=recMixed; recMixed=false; recStop(); stemRec=null;
+  const mixed=recMixed, plan=recPlanNow||{mode:'mic'}; recMixed=false; recLive=false; recStop(); stemRec=null;
   const captions=songMode?K.lines.map((l,i)=>({t:K.t[i]-offsetOf(),e:lineEnd(i)-offsetOf(),text:l,w:K.wt[i]?K.wt[i].map(x=>({s:x.s-offsetOf(),e:x.e-offsetOf()})):null})):[];
   let music=null, mvol=0.8;
   try{
@@ -341,7 +348,8 @@ async function onRecorded(){
     else if(bed.id){ music=await instBlob(CAT.get(bed.id)); mvol=S.settings.bedVol/100; }
   }catch(e){}
   S.stats.days=[...new Set([...S.stats.days,today()])].slice(-120); SAVE.stats();
-  const meta={title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mixed?recMusicLevel()*(songMode?1:mvol):mvol,musicOffset:mixed||songMode?musicOffset:0,mixed,stem};
+  const meta={title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mixed?recMusicLevel()*(songMode?1:mvol):mvol,musicOffset:mixed||songMode?musicOffset:0,mixed,stem,
+    mode:plan.mode,nc:recNC(),aec:!!plan.aec,proc:REC.proc||null,route:ROUTE.output,ext:plan.mode==='mic'&&!!S.settings.extMusic};
   // Save the take as a draft before anything else, then drop the crash-recovery chunks.
   const d=await createDraft(blob,meta,music); await liveEnd();
   openStudio(blob,meta,{draftId:d.id});
@@ -370,9 +378,13 @@ function syncTune(){
   if(A){ const off=offsetOf(); $('#offs').value=off; $('#offsO').textContent=(off>0?'+':'')+off.toFixed(2)+'s';
     const v=voiceOf(A); $$('#voiceSeg button').forEach(b=>{ b.setAttribute('aria-pressed',String(b.dataset.v===v)); b.disabled=(b.dataset.v==='original'||b.dataset.v==='dub')&&!hasClip(A); }); }
   $('#guideTg').setAttribute('aria-checked',String(!!st.guide));
-  const b=st.bed&&CAT.get(st.bed); $('#bedName').textContent=b?b.title:'None'; $('#bedVolRow').hidden=!b;
+  const b=st.bed&&CAT.get(st.bed); $('#bedName').textContent=b?b.title:st.extMusic?'Another app':'None'; $('#bedVolRow').hidden=!b;
   $('#bedVol').value=st.bedVol; $('#bedVolO').textContent=st.bedVol+'%';
-  const rm=Math.round(recMusicLevel()*100); $('#recMus').value=rm; $('#recMusO').textContent=rm+'%'; $('#recMusRow').hidden=!(songMode||st.bed);
+  const rm=Math.round(recMusicLevel()*100); $('#recMus').value=rm; $('#recMusO').textContent=rm+'%';
+  // the music level only applies when music is mixed digitally (headphones, or the speaker clean-mix option)
+  $('#recMusRow').hidden=!((songMode||st.bed)&&recPlan(true).digital);
+  const mg=recMicDb(); $('#micGain').value=mg; $('#micGainO').textContent=(mg>0?'+':'')+mg+' dB';
+  ncUI();
   $('#ttsRate').value=st.ttsRate||1; $('#ttsRateO').textContent=(st.ttsRate||1).toFixed(2)+'×';
   $$('#cdSeg button').forEach(x=>x.setAttribute('aria-pressed',String(+x.dataset.v===st.countdown)));
   $('#mText').setAttribute('aria-pressed',String(st.mirrorText)); $('#mCam').setAttribute('aria-pressed',String(st.mirrorCam)); $('#bdrop').setAttribute('aria-pressed',String(st.backdrop));
@@ -382,12 +394,14 @@ bindRange('#speed','speed'); bindRange('#size','size'); bindRange('#opac','opac'
 $('#focusSl').addEventListener('input',e=>{ setFocus(+e.target.value/100); SAVE.settings(); });
 $('#offs').addEventListener('input',e=>{ const v=+e.target.value; if(A.cat){ S.settings.offsets[A.id]=v; SAVE.settings(); } else { A.offset=v; SAVE.items(); } syncTune(); K.idx=-2; updateKara(); });
 $('#bedVol').addEventListener('input',e=>{ S.settings.bedVol=+e.target.value; bed.audio.volume=S.settings.bedVol/100; SAVE.settings(); syncTune(); });
-$('#recMus').addEventListener('input',e=>{ S.settings.recMusic=+e.target.value/100; SAVE.settings(); syncTune(); if(REC.g) REC.g.level.gain.setTargetAtTime(S.settings.recMusic,ac().currentTime,0.05); });
+$('#recMus').addEventListener('input',e=>{ S.settings.recMusic=+e.target.value/100; SAVE.settings(); syncTune(); if(REC.g&&REC.g.level) REC.g.level.gain.setTargetAtTime(S.settings.recMusic,ac().currentTime,0.05); });
+$('#micGain').addEventListener('input',e=>{ S.settings.micGain=+e.target.value; SAVE.settings(); syncTune(); if(REC.g&&REC.g.micGain) REC.g.micGain.gain.setTargetAtTime(db2g(S.settings.micGain),ac().currentTime,0.05); });
+$('#ncBtn').onclick=async()=>{ recSetNC(!recNC()); ncUI(); if(recNC()&&!(await ncLoad())){ toast('Noise cancellation isn’t supported on this device'); return; } toast(recNC()?'Noise cancellation on · reduces steady background noise':'Noise cancellation off · natural mic sound'); };
 $('#ttsRate').addEventListener('input',e=>{ S.settings.ttsRate=+e.target.value; SAVE.settings(); syncTune(); });
 $('#guideTg').onclick=async()=>{ if(state!=='idle'){ toast('Stop recording to change this'); return; } S.settings.guide=!S.settings.guide; SAVE.settings(); syncTune(); const t=player.time(), was=player.playing(); await loadTimedAudio(A); player.seek(t); if(was) player.play(); toast(S.settings.guide?'Guide vocal on':'Guide vocal off'); };
 $('#voiceSeg').addEventListener('click',async e=>{ const b=e.target.closest('button'); if(!b||b.disabled||state!=='idle') return; setVoice(A,b.dataset.v); narratorStop(); const it=A; closeStage(true); await openStage(it); setTune(true);
   toast({me:'Your voice: the prompter follows your pace',original:'Original audio plays and is mixed into your take',dub:'Dub mode: the clip runs silently so you can voice it',narrator:'Narrator reads the lines aloud for practice'}[b.dataset.v]); });
-$('#bedBtn').onclick=()=>actionSheet('Music bed',[{icon:'x',label:'None',sub:S.settings.bed?'':'Selected',run:()=>{ S.settings.bed=null; SAVE.settings(); loadBed(null); syncTune(); }},...allInst().map(x=>({icon:'audio-waveform',label:x.title+(S.settings.bed===x.id?' ✓':''),sub:x.mood+' · '+fmt(x.dur)+(x.embed||x.user?' · offline':''),run:async()=>{ S.settings.bed=x.id; SAVE.settings(); syncTune(); await loadBed(x.id); bedSync(); toast('“'+x.title+'” will play while you read'); }}))],'Plays under your reading and is mixed into your take in the editor.');
+$('#bedBtn').onclick=()=>musicSheet();
 const handle=$('#handle'); let fd=null;
 handle.addEventListener('pointerdown',e=>{ e.stopPropagation(); fd={y0:e.clientY,f0:S.settings.focus}; handle.setPointerCapture(e.pointerId); });
 handle.addEventListener('pointermove',e=>{ if(!fd) return; setFocus(fd.f0+(e.clientY-fd.y0)/scroller.clientHeight); });
@@ -445,7 +459,7 @@ function closeStage(quiet){
   if(state==='recording'||state==='paused'||state==='counting') return;
   narratorStop();
   stage.hidden=true; document.body.style.overflow=''; rehearsing=false;
-  stopCamera(); cancelAnimationFrame(raf); unlockScreen(); player.pause(); player.setVolume(1); bed.audio.pause(); pip.pause();
+  stopCamera(); cancelAnimationFrame(raf); unlockScreen(); player.pause(); player.setVolume(1); bed.audio.pause(); pip.pause(); musicPreviewStop();
   S.stats.seconds+=Math.round((performance.now()-stageStart)/1000); S.stats.days=[...new Set([...S.stats.days,today()])].slice(-120); SAVE.stats();
   if(!quiet) refresh();
 }
@@ -668,32 +682,121 @@ function stageRouteUI(){
   b.setAttribute('aria-label','Audio: '+ROUTE_LABEL[ROUTE.output]);
   b.classList.toggle('bt',ROUTE.output==='bluetooth');
 }
+/* What will be in this take, in plain words. */
+function stageHasMusic(){ return songMode?(player.hasAudio&&!(A.kind==='line'&&voiceOf(A)==='dub')):!!(S.settings.bed); }
+function planText(p){
+  return {mic:S.settings.extMusic?'Your mic records your voice and the music from the other app together, as one natural sound. Nothing is added or removed.':'Your mic records your voice naturally.',
+    acoustic:'The music plays on the speaker and your mic records it with your voice, like a real room. It is recorded once, so it can’t double or echo.',
+    mix:'You hear the music in your headphones. Lectern adds the clean track to the video and records only your voice from the mic.',
+    mixaec:'Lectern adds the clean track to the video and uses echo cancellation to keep the speaker out of your mic. Some phones make the voice sound thinner this way.'}[p.mode];
+}
+function procWarn(plan){
+  const p=REC.proc; if(!p) return;
+  const bits=[]; if(p.ns) bits.push('noise suppression'); if(p.agc) bits.push('automatic volume'); if(p.aec&&!plan.aec) bits.push('echo cancellation');
+  if(bits.length&&!REC.procWarned){ REC.procWarned=true; toast('This phone kept its own '+bits.join(' and ')+' on. Lectern can’t switch that off.'); }
+}
+function ncUI(){ const b=$('#ncBtn'); if(!b) return; const on=recNC(); b.setAttribute('aria-pressed',String(on)); b.classList.toggle('on',on); b.setAttribute('aria-label','Noise cancellation '+(on?'on':'off')); const t=b.querySelector('b'); if(t) t.textContent=on?'On':'Off'; }
 function audioSheet(forRecord){
   return new Promise(res=>{
-    let started=false;
+    let started=false; let proc=null;
     const r=ROUTE.output, hp=r!=='speaker', lat=Math.round(extraLatency()*1000+outLat()*1000);
+    const music=stageHasMusic();
     const hasHeadsetMic=ROUTE.inputs.some(i=>i.type==='bluetooth'||i.type==='headset')||r==='bluetooth'||r==='wired'||r==='usb';
-    const opt=(v,t,s)=>`<button class="aopt" data-mic="${v}" aria-pressed="${micPref()===v}"><span class="rd"></span><span><b>${t}</b><small>${s}</small></span></button>`;
-    sheet(`<div class="asheet">
-      <div class="aroute"><span class="ai">${ic(ROUTE_ICON[r]||'volume-2')}</span><div><small>Playing through</small><b>${esc(hp&&ROUTE.name?ROUTE.name:ROUTE_LABEL[r])}</b></div></div>
-      ${hp?`<div class="h3" style="margin:18px 0 8px">Record your voice with</div>
-        ${opt('phone','Phone microphone','Best quality. The music stays in your '+(r==='bluetooth'?'Bluetooth ':'')+'headphones and out of your take.')}
-        ${hasHeadsetMic?opt('headset','Headset microphone',r==='bluetooth'?'Uses the mic on your headphones. Bluetooth switches to call-quality sound for this.':'Uses the mic on your headphones.'):''}`
-      :`<div class="atip">${ic('headphones','sm')}<span><b>Headphones give the cleanest take.</b> On the speaker the music leaks into your mic, so Lectern turns on echo cancellation.</span></div>`}
+    const opt=(attr,v,cur,t,s)=>`<button class="aopt" data-${attr}="${v}" aria-pressed="${cur===v}"><span class="rd"></span><span><b>${t}</b><small>${s}</small></span></button>`;
+    const musicName=songMode?esc(titleOf(A)):S.settings.bed&&CAT.get(S.settings.bed)?esc(CAT.get(S.settings.bed).title):S.settings.extMusic?'Another app':'None';
+    const body=()=>{ const plan=recPlan(music); const aecS=recAECSetting(); return `<div class="asheet">
+      <div class="aroute"><span class="ai">${ic(ROUTE_ICON[r]||'volume-2')}</span><div><small>Playing through</small><b>${esc(hp&&ROUTE.name?ROUTE.name:ROUTE_LABEL[r])}</b></div>
+        <div class="amus"><small>Music</small><b>${musicName}</b>${songMode?'':`<button class="tlink" id="aMusic">Change</button>`}</div></div>
+      <div class="amode"><b>${ic('audio-waveform','xs')}${RECMODE_LABEL[plan.mode]}</b><span>${planText(plan)}</span></div>
+      ${hp?`<div class="h3" style="margin:16px 0 8px">Record your voice with</div>
+        ${opt('mic','phone',micPref(),'Phone microphone','Best quality. The music stays in your '+(r==='bluetooth'?'Bluetooth ':'')+'headphones and out of the mic.')}
+        ${hasHeadsetMic?opt('mic','headset',micPref(),'Headset microphone',r==='bluetooth'?'Uses the mic on your headphones. Bluetooth switches to call-quality sound for this.':'Uses the mic on your headphones.'):''}`
+      :music?`<div class="h3" style="margin:16px 0 8px">Music on the speaker</div>
+        ${opt('spk','acoustic',speakerMusicPref(),'Record it through the mic (recommended)','Sounds like the room you’re in. Turn the music down a little if your voice gets lost.')}
+        ${opt('spk','mixaec',speakerMusicPref(),'Clean digital mix','Adds the original track and filters the speaker out of your mic. Headphones do this better.')}`:''}
+      <div class="setrow"><div class="lbl">${ic('audio-lines','sm')}Noise cancellation<small>Reduces steady background noise (fans, hum, wind, distant chatter). Keeps your voice and the music. You can switch it while recording.</small></div><button class="toggle" role="switch" id="aNC" aria-checked="${recNC()}" aria-label="Noise cancellation"></button></div>
+      <div class="setrow col"><div class="lbl">${ic('ear','sm')}Echo cancellation<small>Removes the phone’s own speaker from the mic. It is built for calls and can thin out music, so Auto uses it only for the clean digital mix on the speaker. Set before recording.</small></div>
+        <div class="chips" id="aAEC">${['auto','on','off'].map(v=>`<button class="chip" data-aec="${v}" aria-pressed="${aecS===v}">${v[0].toUpperCase()+v.slice(1)}</button>`).join('')}</div></div>
+      <label class="fld">Mic level <input type="range" id="aMic" min="-12" max="12" step="1" value="${recMicDb()}" aria-label="Microphone level"><output>${(recMicDb()>0?'+':'')+recMicDb()} dB</output></label>
+      ${music&&plan.digital?`<label class="fld">Music in take <input type="range" id="aMus" min="0" max="100" step="5" value="${Math.round(recMusicLevel()*100)}" aria-label="Music level in the recording"><output>${Math.round(recMusicLevel()*100)}%</output></label>`:''}
+      <div class="aproc" id="aProc">${procNote(plan,proc)}</div>
       <div class="alat"><span>${ic('timer','sm')}Delay compensation <b>${lat} ms</b></span><button class="btn sm" id="aLat">Adjust</button></div>
       ${forRecord?`<button class="btn white block" id="aGo">${ic('circle','fill sm')}Start recording</button>`:`<button class="btn white block" id="aGo">Done</button>`}
-    </div>`,{onMount(el,close){
-      el.addEventListener('click',e=>{ const o=e.target.closest('[data-mic]'); if(!o) return; S.settings.micPref=o.dataset.mic; SAVE.settings(); $$('[data-mic]',el).forEach(x=>x.setAttribute('aria-pressed',String(x===o))); });
-      el.querySelector('#aLat').onclick=()=>{ close(); openLatencyCheck(); };
-      el.querySelector('#aGo').onclick=()=>{ started=true; S.settings.routeSeen={...(S.settings.routeSeen||{}),[r]:true}; SAVE.settings(); close(); };
-    },onClose(){ setTimeout(()=>res(started),0); }});
+    </div>`; };
+    sheet(`<div id="aWrap">${body()}</div>`,{onMount(el,close){
+      const wrap=el.querySelector('#aWrap');
+      const redraw=()=>{ const y=el.scrollTop; wrap.innerHTML=body(); bind(); el.scrollTop=y; syncTune(); };
+      const bind=()=>{
+        const q=x=>wrap.querySelector(x);
+        q('#aNC').onclick=()=>{ recSetNC(!recNC()); redraw(); };
+        q('#aMic').oninput=e=>{ S.settings.micGain=+e.target.value; SAVE.settings(); e.target.nextElementSibling.textContent=(S.settings.micGain>0?'+':'')+S.settings.micGain+' dB'; };
+        if(q('#aMus')) q('#aMus').oninput=e=>{ S.settings.recMusic=+e.target.value/100; SAVE.settings(); e.target.nextElementSibling.textContent=e.target.value+'%'; };
+        if(q('#aMusic')) q('#aMusic').onclick=()=>{ started=null; close(); musicSheet(()=>audioSheet(forRecord).then(res)); };
+        q('#aLat').onclick=()=>{ close(); openLatencyCheck(); };
+        q('#aGo').onclick=()=>{ started=true; S.settings.routeSeen={...(S.settings.routeSeen||{}),[r+(music?':m':'')]:true}; SAVE.settings(); close(); };
+      };
+      wrap.addEventListener('click',e=>{ const o=e.target.closest('[data-mic],[data-spk],[data-aec]'); if(!o) return;
+        if(o.dataset.mic) S.settings.micPref=o.dataset.mic; if(o.dataset.spk) S.settings.speakerMusic=o.dataset.spk; if(o.dataset.aec) S.settings.echoCancel=o.dataset.aec;
+        SAVE.settings(); redraw(); });
+      bind();
+      deviceProcessing().then(p=>{ proc=p; const n=wrap.querySelector('#aProc'); if(n) n.innerHTML=procNote(recPlan(music),p); });
+    },onClose(){ if(started!==null) setTimeout(()=>res(started),0); }});
   });
+}
+/* What the phone itself does to the mic, as far as the app can tell. */
+async function deviceProcessing(){ if(!nativeRoute()) return null; try{ return await nat('AudioRoute','getProcessing'); }catch(e){ return null; } }
+function procNote(plan,dev){
+  const p=REC.proc, out=[];
+  if(p&&(p.ns||p.agc)) out.push('Last take, this phone kept its own '+[p.ns&&'noise suppression',p.agc&&'automatic volume'].filter(Boolean).join(' and ')+' on even though Lectern asked for it off. That is set by the phone and the app can’t override it.');
+  if(plan.aec) out.push('Echo cancellation is on for this take. Noise cancellation is a separate setting.');
+  if(dev&&!dev.unprocessed) out.push('This phone doesn’t offer an unprocessed mic input, so some light processing by the phone may remain.');
+  if(!out.length) out.push('Lectern asks the phone for its plain microphone signal: no call-style noise suppression or automatic volume.');
+  return ic('info','xs')+'<span>'+out.join(' ')+'</span>';
 }
 async function audioCheck(){
   await refreshRoute(); stageRouteUI();
   const seen=S.settings.routeSeen||{};
-  if(seen[ROUTE.output]) return true;
+  if(seen[ROUTE.output+(stageHasMusic()?':m':'')]) return true;
   return audioSheet(true);
+}
+
+/* ================= Music for the take ================= */
+const MPREV={audio:new Audio(),id:null,url:''};
+MPREV.audio.addEventListener('ended',()=>{ MPREV.id=null; prevUI(); });
+AUDIO.register('mprev',{label:()=>{ const x=MPREV.id&&CAT.get(MPREV.id); return x?x.title:'Preview'; },sub:'Preview',icon:'list-music',playing:()=>!MPREV.audio.paused,stop:()=>musicPreviewStop(),here:()=>true});
+function musicPreviewStop(){ MPREV.audio.pause(); MPREV.id=null; if(MPREV.url){ URL.revokeObjectURL(MPREV.url); MPREV.url=''; } MPREV.audio.removeAttribute('src'); prevUI(); }
+let prevUI=()=>{};
+async function musicPreview(id){
+  if(MPREV.id===id){ musicPreviewStop(); return; }
+  musicPreviewStop(); bed.audio.pause(); AUDIO.claim('mprev');
+  MPREV.id=id; prevUI();
+  try{ const b=await instBlob(CAT.get(id)); if(MPREV.id!==id) return; MPREV.url=URL.createObjectURL(b); MPREV.audio.src=MPREV.url; MPREV.audio.volume=S.settings.bedVol/100; await MPREV.audio.play(); }
+  catch(e){ if(MPREV.id===id){ MPREV.id=null; prevUI(); toast('Couldn’t play that preview. Are you online?'); } }
+  prevUI();
+}
+function musicSheet(after){
+  const row=(id,icon,title,sub,sel,prev)=>`<div class="mrow" data-sel="${id}" role="radio" tabindex="0" aria-checked="${sel}"><span class="rd"></span><span class="mi">${ic(icon,'sm')}</span><span class="mt"><b>${title}</b><small>${sub}</small></span>${prev?`<button class="circ sm mprev" data-prev="${id}" aria-label="Preview ${esc(title)}">${ic('play','fill xs')}</button>`:''}</div>`;
+  const cur=()=>S.settings.bed||(S.settings.extMusic?'@ext':'@none');
+  const list=()=>row('@none','x','No music','Voice only',cur()==='@none')+
+    row('@ext','smartphone','Music from another app','Play it on the speaker from any music app. Lectern records it through the mic, untouched.',cur()==='@ext')+
+    allInst().map(x=>row(x.id,'audio-waveform',esc(x.title),esc(x.mood)+' · '+fmt(x.dur)+(x.embed||x.user?' · offline':''),cur()===x.id,true)).join('');
+  sheet(`<div class="msheet"><h3>Music for your take</h3>
+    <div class="mlist" role="radiogroup" aria-label="Music">${list()}</div>
+    <label class="fld">Music volume <input type="range" id="msVol" min="0" max="100" step="5" value="${S.settings.bedVol}" aria-label="Music volume while you read"><output>${S.settings.bedVol}%</output></label>
+    <label class="fld">Mic level <input type="range" id="msMic" min="-12" max="12" step="1" value="${recMicDb()}" aria-label="Microphone level"><output>${(recMicDb()>0?'+':'')+recMicDb()} dB</output></label>
+    <button class="btn white block" id="msDone">Done</button></div>`,{onMount(el,close){
+      const L=el.querySelector('.mlist');
+      prevUI=()=>{ $$('[data-prev]',el).forEach(b=>{ const on=MPREV.id===b.dataset.prev; b.innerHTML=ic(on?'square':'play','fill xs'); b.classList.toggle('on',on); b.setAttribute('aria-label',(on?'Stop preview of ':'Preview ')+(CAT.get(b.dataset.prev)||{}).title); }); };
+      const choose=async id=>{ musicPreviewStop();
+        if(id==='@none'||id==='@ext'){ S.settings.bed=null; S.settings.extMusic=id==='@ext'; SAVE.settings(); await loadBed(null); }
+        else { S.settings.bed=id; S.settings.extMusic=false; SAVE.settings(); await loadBed(id); }
+        $$('[data-sel]',el).forEach(r=>r.setAttribute('aria-checked',String(r.dataset.sel===cur()))); syncTune(); bedSync(); };
+      L.addEventListener('click',e=>{ const p=e.target.closest('[data-prev]'); if(p){ e.stopPropagation(); musicPreview(p.dataset.prev); return; } const r=e.target.closest('[data-sel]'); if(r) choose(r.dataset.sel); });
+      L.addEventListener('keydown',e=>{ if(e.key!=='Enter'&&e.key!==' ') return; const r=e.target.closest('[data-sel]'); if(r){ e.preventDefault(); choose(r.dataset.sel); } });
+      el.querySelector('#msVol').oninput=e=>{ S.settings.bedVol=+e.target.value; SAVE.settings(); bed.audio.volume=MPREV.audio.volume=S.settings.bedVol/100; e.target.nextElementSibling.textContent=e.target.value+'%'; syncTune(); };
+      el.querySelector('#msMic').oninput=e=>{ S.settings.micGain=+e.target.value; SAVE.settings(); e.target.nextElementSibling.textContent=(S.settings.micGain>0?'+':'')+S.settings.micGain+' dB'; syncTune(); };
+      el.querySelector('#msDone').onclick=close; prevUI();
+    },onClose(){ musicPreviewStop(); prevUI=()=>{}; if(after) setTimeout(after,0); }});
 }
 
 /* Sync check: clicks play on the audio clock while a dot flashes on screen. Slide until

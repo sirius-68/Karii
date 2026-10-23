@@ -4,6 +4,9 @@ import android.content.Context;
 import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.AutomaticGainControl;
+import android.media.audiofx.NoiseSuppressor;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -49,6 +52,27 @@ public class AudioRoutePlugin extends Plugin {
     @PluginMethod
     public void getRoute(PluginCall call) {
         call.resolve(route());
+    }
+
+    /** True while any app (including this one) is playing music; the web app asks only when it is silent. */
+    @PluginMethod
+    public void isMusicActive(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("active", am != null && am.isMusicActive());
+        call.resolve(r);
+    }
+
+    /** Which built-in voice processing this phone has, and whether it can record unprocessed audio. */
+    @PluginMethod
+    public void getProcessing(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("aec", AcousticEchoCanceler.isAvailable());
+        r.put("ns", NoiseSuppressor.isAvailable());
+        r.put("agc", AutomaticGainControl.isAvailable());
+        String raw = am != null ? am.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) : null;
+        r.put("unprocessed", "true".equals(raw));
+        r.put("mode", am != null ? am.getMode() : 0);
+        call.resolve(r);
     }
 
     @PluginMethod

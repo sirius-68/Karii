@@ -91,7 +91,17 @@ function rebuildChains(){ [...ST.chains.keys()].forEach(dropChain); if(!ST.ctx) 
 function rebuildVoiceChain(){ rebuildChains(); if(ST.playing){ const t=stNow(); stopSources(); startSources(t); } }
 
 /* ---------- Transport ---------- */
-const musicAt=()=>(ST.meta&&ST.meta.musicOffset||0)+(ST.e.musicNudge||0);
+/* Where the clean music starts on the timeline: the measured position of the music the mic
+   heard (when there is any), otherwise the offset estimated while recording. */
+const musicAt=()=>(leakFound()?ST.leak.lag:(ST.meta&&ST.meta.musicOffset||0))+(ST.e.musicNudge||0);
+const LEAK_PSR=7; const leakFound=()=>!!(ST.leak&&ST.leak.psr>=LEAK_PSR);
+// The music is already in the take when it was recorded through the mic.
+const acousticTake=()=>!!ST.meta&&(ST.meta.mode==='acoustic'||(ST.meta.mode==='mic'&&!!ST.meta.ext));
+function computeHasMusic(){ const m=ST.meta; if(!m.music) return false; if(acousticTake()) return !!ST.e.addClean; return !(m.mixed&&!m.stem); }
+async function measureLeak(){
+  ST.leak=null; const t=ST.bufs.get('take'); if(!t||!t.raw||!ST.musicBuf) return;
+  try{ ST.leak=await findLeak(t.raw,ST.musicBuf,2.5); }catch(e){ ST.leak=null; }
+}
 function stNow(){ return ST.playing?Math.min(ST.dur,ST.pos+(ST.ctx.currentTime-ST.startCtx)):ST.pos; }
 function bufFor(c){ const b=ST.bufs.get(c.src); if(!b) return null; return (ST.e.clean&&b.clean)?b.clean:b.raw; }
 const clipLen=c=>{ const b=ST.bufs.get(c.src); return b&&b.raw?b.raw.duration:0; };
@@ -113,7 +123,7 @@ function startSources(at){
       if(cl.fadeOut>0){ const fo=Math.max(startTl,b-cl.fadeOut); g.setValueAtTime(valAt(fo),tl2c(fo)); g.linearRampToValueAtTime(0,tl2c(b)); }
     });
   });
-  if(ST.musicBuf){ const m=c.createBufferSource(); m.buffer=ST.musicBuf; m.loop=!!(ST.meta&&ST.meta.loop); m.connect(ST.musicGain);
+  if(ST.musicBuf&&ST.hasMusic){ const m=c.createBufferSource(); m.buffer=ST.musicBuf; m.loop=!!(ST.meta&&ST.meta.loop); m.connect(ST.musicGain);
     const mo=at-musicAt();
     if(mo>=0){ if(m.loop||mo<ST.musicBuf.duration){ m.start(when,m.loop?mo%ST.musicBuf.duration:mo); ST.srcs.push(m); } }
     else { m.start(when-mo,0); ST.srcs.push(m); } }
@@ -139,7 +149,8 @@ async function openStudio(blob,meta,opts={}){
   ST.blob=blob; ST.meta={...meta,loop:meta.loop??(meta.kind!=='song')}; ST.draftId=opts.draftId||null;
   const ed=opts.edit||{};
   // Takes recorded with the in-app mixer already have a processed voice; don't process twice.
-  const fresh=meta.mixed&&!opts.edit?{clean:false,enhance:false}:{};
+  // Natural recordings with music in them aren't processed by default either: the offline cleaner is for voice.
+  const fresh=(meta.mixed||(meta.mode&&meta.mode!=='mic')||meta.ext)&&!opts.edit?{clean:false,enhance:false}:{};
   ST.e={...EDIT_DEFAULT,mVol:meta.musicVol??.8,captions:!!(meta.captions&&meta.captions.length),...fresh,...ed};
   if(!Array.isArray(ST.e.tracks)||!ST.e.tracks.length) ST.e.tracks=[mainTrack(ed.voice)];
   ST.e.tracks=ST.e.tracks.map(toLayer);
@@ -152,7 +163,7 @@ async function openStudio(blob,meta,opts={}){
   if(ST.url) URL.revokeObjectURL(ST.url);
   ST.url=URL.createObjectURL(blob); stVideo.src=ST.url; stVideo.muted=true;
   // A mixed take without its voice stem (e.g. recovered after a crash) already contains the music.
-  ST.hasMusic=!!meta.music&&!(meta.mixed&&!meta.stem);
+  ST.leak=null; ST.hasMusic=computeHasMusic();
   $('#studio').hidden=false; document.body.style.overflow='hidden';
   $('#stSaved').classList.remove('on'); $('#stSaved').textContent='';
   ensureStudioGraph();
@@ -171,6 +182,8 @@ async function openStudio(blob,meta,opts={}){
     // recorded layers
     for(const t of ST.e.tracks) for(const cl of t.clips){ if(cl.src.startsWith('ovd:')&&!ST.bufs.has(cl.src)&&ST.draftId){ const b=await idb.get('draftv:'+ST.draftId+':'+cl.src.slice(4),'rec'); if(b){ try{ ST.bufs.set(cl.src,{raw:await decodeIn(ST.ctx,b)}); }catch(e){} } } }
     if(meta.music&&ST.hasMusic){ try{ ST.musicBuf=await decodeIn(ST.ctx,meta.music); }catch(e){ ST.musicBuf=null; ST.hasMusic=false; } }
+    // If the mic picked up the music, put the clean copy exactly on top of it (no echo).
+    if(ST.musicBuf&&ST.mode==='buffer') await measureLeak();
     rebuildChains(); applyMix();
     if(ST.e.clean||ST.e.enhance) runClean();
   }
@@ -337,16 +350,20 @@ function renderStPanel(){
       <div class="h3 pad" style="margin:14px 0 8px">Effects</div><div class="vgrid">${grid('fx')}</div>
       ${def.params.length?`<div class="card fxp" style="margin:14px 20px 0"><div class="fxp-h"><b>${esc(def.name)}${ST.e.tracks.length>1?' · '+esc(t.name):''}</b><button class="tlink" data-fxreset>Reset</button></div>
         ${def.params.map(q=>`<div class="mixrow"><span class="ml">${esc(q.label)}</span><input type="range" data-fxp="${q.key}" min="${q.min}" max="${q.max}" step="${q.step}" value="${v[q.key]}"><output>${fmtParam(v[q.key],q)}</output></div>`).join('')}</div>`:''}
-      <p class="hint pad" style="margin-top:12px">${ST.ctx?'Press play to hear changes as you make them. Effects apply to your voice'+(ST.hasMusic?', not the music.':'.'):'Voice effects need Web Audio, which this device doesn’t support.'}</p>`;
+      <p class="hint pad" style="margin-top:12px">${ST.ctx?'Press play to hear changes as you make them. '+(acousticTake()?'This take has the music in it, so effects and Clean up apply to both. Clean up is set to leave steady music alone, but keep it gentle.':'Effects apply to your voice'+(ST.hasMusic?', not the music.':'.')):'Voice effects need Web Audio, which this device doesn’t support.'}</p>`;
     renderCleanStatus(1);
   } else if(ST.tab==='tracks'){
     renderTracks(p);
   } else if(ST.tab==='mix'){
-    p.innerHTML=`<div class="mixrow">${ic('mic')}<input type="range" id="mxV" min="0" max="150" value="${Math.round(E.vVol*100)}" aria-label="Vocals volume"><output>${Math.round(E.vVol*100)}%</output></div>
+    const ac_=acousticTake(), lk=leakFound();
+    p.innerHTML=`<div class="mixrow">${ic('mic')}<input type="range" id="mxV" min="0" max="150" value="${Math.round(E.vVol*100)}" aria-label="${ac_?'Recording volume':'Vocals volume'}"><output>${Math.round(E.vVol*100)}%</output></div>
+      ${ac_&&ST.meta.music?`<div class="setrow" style="padding:10px 20px"><div class="lbl">Add the original track on top<small>Your mic already recorded the music. This adds the clean track too, lined up with what the mic heard, for a fuller sound.</small></div><button class="toggle" role="switch" data-x="addClean" aria-checked="${!!E.addClean}" aria-label="Add the original track on top"></button></div>`:''}
       <div class="mixrow" ${ST.hasMusic?'':'style="opacity:.4"'}>${ic('eighth-notes')}<input type="range" id="mxM" min="0" max="150" value="${Math.round(E.mVol*100)}" ${ST.hasMusic?'':'disabled'} aria-label="Music volume"><output>${ST.hasMusic?Math.round(E.mVol*100)+'%':'—'}</output></div>
       ${ST.hasMusic?`<div class="mixrow">${ic('timer')}<input type="range" id="mxN" min="-500" max="500" step="10" value="${Math.round((E.musicNudge||0)*1000)}" aria-label="Music timing"><output>${(E.musicNudge>0?'+':'')+Math.round((E.musicNudge||0)*1000)} ms</output></div>
-      <p class="hint pad">Music timing: if your voice sounds ahead of or behind the beat, nudge the music until they line up. Already compensated for ${Math.round((ST.meta.musicOffset||0)*1000)} ms of headphone delay.</p>`:''}
-      <p class="hint pad">${ST.hasMusic?'Music is mixed in clean from the original track, so it sounds better than what your mic picked up.':'No music in this take. Add a music bed in Tune before recording, or sing a karaoke song.'} Per-track volume and pan are in Tracks.</p>`;
+      <p class="hint pad">Music timing: if your voice sounds ahead of or behind the beat, nudge the music. ${lk?`Lined up to the music your mic heard (${Math.round(ST.leak.lag*1000)} ms).`:`Already compensated for ${Math.round((ST.meta.musicOffset||0)*1000)} ms of delay.`}</p>`:''}
+      <div class="h3" style="margin:14px 20px 8px">Audio sources</div>
+      <div class="srcs">${audioSourcesHTML()}</div>
+      <p class="hint pad">Per-track volume and pan are in Tracks.</p>`;
   } else {
     const tg=(k,label,sub,dis)=>`<div class="setrow" ${dis?'style="opacity:.4"':''}><div class="lbl">${label}${sub?`<small>${sub}</small>`:''}</div><button class="toggle" role="switch" data-x="${k}" aria-checked="${!!E[k]}" ${dis?'disabled':''} aria-label="${label}"></button></div>`;
     p.innerHTML=`<div class="card" style="margin:0 20px">${tg('captions','Lyric captions','Burns the karaoke line into the video',!(ST.meta.captions&&ST.meta.captions.length))}${tg('mirror','Mirror video','Flip left and right')}${tg('vignette','Vignette','Darkens the edges')}${tg('grain','Film grain')}${tg('watermark','Lectern watermark')}</div>`;
@@ -395,7 +412,7 @@ function renderSub(){
 const LANE_H=48, HANDLE=16;
 function laneGeom(){ const cv=$('#lanesCv'); return {cv,W:cv.clientWidth||cv.parentElement.clientWidth||360,D:Math.max(ST.dur,1)}; }
 function drawLanes(){
-  const cv=$('#lanesCv'); if(!cv) return; const tr=ST.e.tracks, W=cv.parentElement.clientWidth||360, H=tr.length*LANE_H+(ST.musicBuf?30:0)+8, dpr=devicePixelRatio||1;
+  const cv=$('#lanesCv'); if(!cv) return; const tr=ST.e.tracks, W=cv.parentElement.clientWidth||360, H=tr.length*LANE_H+(ST.musicBuf&&ST.hasMusic?30:0)+8, dpr=devicePixelRatio||1;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px'; const g=cv.getContext('2d'); g.scale(dpr,dpr); g.clearRect(0,0,W,H);
   const D=Math.max(ST.dur,1), x=tt=>tt/D*W; let y=4; const font='600 11px '+uiFont();
   const solo=tr.some(z=>z.solo);
@@ -414,7 +431,7 @@ function drawLanes(){
     });
     g.fillStyle=dim?'rgba(255,255,255,.5)':'#fff'; g.font=font; const lbl=t.name+(t.fx!=='none'?' · '+fxName(t.fx):'')+(t.mute?' · muted':'')+(t.solo?' · solo':''); g.fillText(lbl,6,y+14);
     y+=LANE_H; });
-  if(ST.musicBuf){ const a=musicAt(); g.fillStyle='rgba(251,146,60,.18)'; roundRectPath(g,x(Math.max(0,a)),y+3,W-x(Math.max(0,a)),22,6); g.fill(); g.fillStyle='#FDBA74'; g.font=font; g.fillText('Music',x(Math.max(0,a))+6,y+18); }
+  if(ST.musicBuf&&ST.hasMusic){ const a=musicAt(); g.fillStyle='rgba(251,146,60,.18)'; roundRectPath(g,x(Math.max(0,a)),y+3,W-x(Math.max(0,a)),22,6); g.fill(); g.fillStyle='#FDBA74'; g.font=font; g.fillText('Music',x(Math.max(0,a))+6,y+18); }
   moveLaneHead(stNow());
 }
 function moveLaneHead(t){ const h=$('#lanesHead'), cv=$('#lanesCv'); if(!h||!cv) return; h.style.transform='translateX('+(t/Math.max(ST.dur,1)*cv.clientWidth).toFixed(1)+'px)'; }
@@ -516,6 +533,28 @@ async function recordLayer(){
   renderStPanel();
 }
 
+/* What is in the file and what the editor plays, so it's clear nothing is heard twice. */
+function audioSourcesHTML(){
+  const m=ST.meta, E=ST.e, row=(icon,html)=>`<div class="src">${ic(icon,'sm')}<span>${html}</span></div>`;
+  const layers=E.tracks.filter(t=>t.clips.some(c=>c.src.startsWith('ovd:'))).length;
+  const inFile=m.mixed?'your voice and the music, mixed while recording':acousticTake()?'your microphone: your voice and the music as it sounded in the room':m.mode==='mic'?'your microphone':'the recorded sound';
+  const plays=ST.mode==='element'?'the video’s own sound (this device couldn’t decode it separately)':
+    ['your '+(acousticTake()?'recording':'voice track')+(m.stem?'':' (from the video)'),ST.hasMusic&&ST.musicBuf?'the clean music'+(leakFound()?', lined up with what the mic heard':''):'',layers?layers+' recorded layer'+(layers>1?'s':''):''].filter(Boolean).join(' + ');
+  const proc=[m.mode?RECMODE_LABEL[m.mode]:'',m.nc?'noise cancellation on':m.mode?'noise cancellation off':'',m.aec?'echo cancellation on':m.mode?'echo cancellation off':''].filter(Boolean).join(' · ');
+  const dev=m.proc&&(m.proc.ns||m.proc.agc)?' The phone kept its own '+[m.proc.ns&&'noise suppression',m.proc.agc&&'automatic volume'].filter(Boolean).join(' and ')+' on.':'';
+  return row('video','<b>In the video file:</b> one audio track with '+inFile+'.')+
+    row('play','<b>The editor plays:</b> '+plays+'. The video’s own sound stays muted here, so nothing plays twice. Your export uses the same mix.')+
+    (m.mixed&&ST.hasMusic&&leakFound()?row('info','<b>Speaker music in the voice track:</b> echo cancellation didn’t fully remove it while recording, so the raw video has the music twice. The editor lines the clean track up with it, and saving rebuilds the video from this single mix.'):'')+
+    (proc||dev?row('settings-2','<b>Recorded with:</b> '+(proc||'standard settings')+'.'+dev):'');
+}
+async function toggleCleanMusic(){
+  if(ST.e.addClean&&Math.abs(ST.e.mVol-(ST.meta.musicVol??.8))<0.01) ST.e.mVol=0.5;
+  ST.hasMusic=computeHasMusic();
+  if(ST.hasMusic&&!ST.musicBuf&&ST.meta.music&&ST.ctx){ try{ ST.musicBuf=await decodeIn(ST.ctx,ST.meta.music); }catch(e){ ST.musicBuf=null; ST.hasMusic=false; toast('Couldn’t load the original track'); } }
+  if(ST.hasMusic&&ST.musicBuf&&!ST.leak){ toast('Lining the track up with your recording…'); await measureLeak(); if(!(leakFound())) toast('Couldn’t hear the music clearly in the recording. Use Music timing to line it up.'); }
+  applyMix(); restartIfPlaying(); persistEdit(); renderStPanel();
+}
+
 /* ---------- Panel events ---------- */
 $('.st-tabs').addEventListener('click',e=>{ const b=e.target.closest('[data-p]'); if(!b) return; ST.tab=b.dataset.p; renderStPanel(); });
 $('#stPanel').addEventListener('click',e=>{
@@ -524,7 +563,9 @@ $('#stPanel').addEventListener('click',e=>{
   const v=e.target.closest('[data-v]'); if(v){ pushUndo(); const t=selTrack(); t.fx=v.dataset.v; t.fxv=fxDefaults(t.fx); dropChain(t.id); if(ST.ctx) ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); if(!ST.playing) stPlay(); persistEdit(); renderStPanel(); return; }
   if(e.target.closest('[data-fxreset]')){ const t=selTrack(); t.fxv=fxDefaults(t.fx); dropChain(t.id); ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); persistEdit(); renderStPanel(); return; }
   const x=e.target.closest('[data-x]'); if(x&&!x.disabled){ const k=x.dataset.x; ST.e[k]=!ST.e[k]; x.setAttribute('aria-checked',String(ST.e[k]));
-    if(k==='clean'||k==='enhance'){ rebuildVoiceChain(); if(ST.e[k]) runClean(); renderStPanel(); } else applyLook();
+    if(k==='clean'||k==='enhance'){ rebuildVoiceChain(); if(ST.e[k]) runClean(); renderStPanel(); }
+    else if(k==='addClean'){ toggleCleanMusic(); }
+    else applyLook();
     persistEdit(); return; }
   const btn=e.target.closest('button'); const id=btn&&!btn.disabled&&btn.id;
   if(id==='tkDup') dupLayer(); else if(id==='tkSplit') splitClip(); else if(id==='tkDel') delSelected(); else if(id==='tkRec') recordLayer();
@@ -552,7 +593,10 @@ $('#stPanel').addEventListener('change',e=>{ const t=e.target;
   if(t.dataset.fxp){ const tr=selTrack(), ch=ST.chains.get(tr.id); if(ch&&ch.fx&&(ch.fx.rebuildOn||[]).includes(t.dataset.fxp)){ dropChain(tr.id); ST.chains.set(tr.id,buildTrackChain(tr)); restartIfPlaying(); } }
   if(t.dataset.ck) restartIfPlaying(); });
 
-const needsRender=()=>{ const E=ST.e; if(ST.meta.mixed&&isUntouched()) return false; return E.filter!=='none'||E.tracks.length>1||E.tracks.some(t=>t.fx!=='none'||t.gain!==1||t.pan||t.clips.length!==1||t.clips.some(c=>c.fadeIn||c.fadeOut||c.trimIn||c.trimOut))||E.clean||E.enhance||ST.hasMusic||E.mirror||E.vignette||E.grain||E.watermark||(E.captions&&ST.meta.captions&&ST.meta.captions.length)||E.vVol!==1; };
+// A mixed take whose voice track turned out to contain the speaker music (echo cancellation
+// didn't catch it) has the music twice in the raw file, so it's always re-rendered from the
+// aligned editor mix rather than shared as recorded.
+const needsRender=()=>{ const E=ST.e; if(ST.meta.mixed&&ST.hasMusic&&leakFound()) return true; if((ST.meta.mixed||acousticTake()||ST.meta.mode==='mic')&&isUntouched()) return false; return E.filter!=='none'||E.tracks.length>1||E.tracks.some(t=>t.fx!=='none'||t.gain!==1||t.pan||t.clips.length!==1||t.clips.some(c=>c.fadeIn||c.fadeOut||c.trimIn||c.trimOut))||E.clean||E.enhance||ST.hasMusic||E.mirror||E.vignette||E.grain||E.watermark||(E.captions&&ST.meta.captions&&ST.meta.captions.length)||E.vVol!==1; };
 async function stRender(){
   if(!window.MediaRecorder||!stCanvas.captureStream){ toast('This device can’t render video. Saving the original instead.'); return saveRec(ST.blob,true); }
   if(ST.cleaning){ toast('Finishing the clean-up first…'); while(ST.cleaning) await new Promise(r=>setTimeout(r,200)); }
@@ -620,4 +664,4 @@ $('#rCancel').onclick=()=>{ ST.cancel=true; };
 document.addEventListener('visibilitychange',()=>{ if(document.hidden&&!$('#studio').hidden){ if(!ST.exporting) stPause(); if(ST.draftId){ ST.draftId&&saveDraftEdit(ST.draftId,{...ST.e}); SAVE.drafts(); } } });
 /* True when nothing has been changed from how the take was recorded. */
 function isUntouched(){ const E=ST.e, t=E.tracks;
-  return E.filter==='none'&&!E.clean&&!E.enhance&&!E.mirror&&!E.vignette&&!E.grain&&E.vVol===1&&Math.abs(E.mVol-(ST.meta.musicVol??.8))<0.01&&!E.musicNudge&&t.length===1&&t[0].fx==='none'&&t[0].gain===1&&!t[0].pan&&t[0].clips.length===1&&!t[0].clips[0].trimIn&&!t[0].clips[0].trimOut&&!t[0].clips[0].fadeIn&&!t[0].clips[0].fadeOut&&!E.captions; }
+  return E.filter==='none'&&!E.clean&&!E.enhance&&!E.mirror&&!E.vignette&&!E.grain&&E.vVol===1&&Math.abs(E.mVol-(ST.meta.musicVol??.8))<0.01&&!E.musicNudge&&t.length===1&&t[0].fx==='none'&&t[0].gain===1&&!t[0].pan&&t[0].clips.length===1&&!t[0].clips[0].trimIn&&!t[0].clips[0].trimOut&&!t[0].clips[0].fadeIn&&!t[0].clips[0].fadeOut&&!E.captions&&!E.addClean; }

@@ -33,7 +33,7 @@ async function createDraft(video,meta,music){
   if(music) await idb.putx('draftm:'+id,music,'rec');
   if(meta.stem) await idb.putx('draftstem:'+id,meta.stem,'rec');
   const d={id,title:meta.title||'Take',itemId:meta.itemId||null,kind:meta.kind||'script',created:Date.now(),updated:Date.now(),dur:meta.dur||0,thumb:'',hasMusic:!!music,
-    meta:{captions:meta.captions||[],musicVol:meta.musicVol??.8,musicOffset:meta.musicOffset||0,remix:!!meta.remix,loop:meta.kind!=='song',mixed:!!meta.mixed},hasStem:!!meta.stem,edit:null,open:true};
+    meta:{captions:meta.captions||[],musicVol:meta.musicVol??.8,musicOffset:meta.musicOffset||0,remix:!!meta.remix,loop:meta.kind!=='song',mixed:!!meta.mixed,mode:meta.mode||null,nc:!!meta.nc,aec:!!meta.aec,proc:meta.proc||null,route:meta.route||null,ext:!!meta.ext},hasStem:!!meta.stem,edit:null,open:true};
   S.drafts.unshift(d); S.drafts=S.drafts.slice(0,30); SAVE.drafts();
   return d;
 }
@@ -56,7 +56,7 @@ async function openDraft(id){
   const video=await idb.get('draft:'+id,'rec'); if(!video){ toast('The video for this draft is missing'); deleteDraft(id); return; }
   const music=d.hasMusic?await idb.get('draftm:'+id,'rec'):null;
   const stem=d.hasStem?await idb.get('draftstem:'+id,'rec'):null;
-  openStudio(video,{title:d.title,itemId:d.itemId,kind:d.kind,dur:d.dur,captions:d.meta.captions,music,musicVol:d.meta.musicVol,musicOffset:d.meta.musicOffset,remix:d.meta.remix,mixed:d.meta.mixed,stem},{draftId:id,edit:d.edit});
+  openStudio(video,{title:d.title,itemId:d.itemId,kind:d.kind,dur:d.dur,captions:d.meta.captions,music,musicVol:d.meta.musicVol,musicOffset:d.meta.musicOffset,remix:d.meta.remix,mixed:d.meta.mixed,stem,mode:d.meta.mode,nc:d.meta.nc,aec:d.meta.aec,proc:d.meta.proc,route:d.meta.route,ext:d.meta.ext},{draftId:id,edit:d.edit});
 }
 
 /* Launch-time recovery: an interrupted recording, then an editing session left open. */
@@ -67,7 +67,7 @@ async function recoverSessions(){
     if(ks.length){
       const parts=[]; for(const k of ks){ const b=await idb.get(k,'rec'); if(b) parts.push(b); }
       const blob=new Blob(parts,{type:live.mime||parts[0]&&parts[0].type||'video/webm'});
-      const d=await createDraft(blob,{title:live.title,itemId:live.itemId,kind:live.kind,dur:ks.length,captions:live.captions||[],musicVol:live.musicVol,musicOffset:live.musicOffset||0,mixed:!!live.mixed},null);
+      const d=await createDraft(blob,{title:live.title,itemId:live.itemId,kind:live.kind,dur:ks.length,captions:live.captions||[],musicVol:live.musicVol,musicOffset:live.musicOffset||0,mixed:!!live.mixed,mode:live.mode||null},null);
       d.open=false; d.recovered=true; SAVE.drafts();
       ks.forEach(k=>idb.del(k,'rec'));
       store.set('lectern.live',null);

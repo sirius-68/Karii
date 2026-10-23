@@ -897,10 +897,50 @@ table.bench th{color:var(--muted);font-weight:500}
 .card:has(table.bench){overflow-x:auto}
 .tbtn{font-size:clamp(.6875rem,2.9vw,.76rem)}
 
+/* ================= Recording audio: noise cancellation, setup, music ================= */
+.ncbtn{flex:none;display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;margin-right:8px;border-radius:999px;background:rgba(20,20,22,.55);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);color:#fff;font-size:.8rem;font-weight:600;border:1.5px solid rgba(255,255,255,.18);white-space:nowrap;min-width:44px}
+.ncbtn span{font-weight:500;opacity:.85}
+.ncbtn b{font-weight:700;color:rgba(255,255,255,.7)}
+.ncbtn.on{border-color:#34D399;background:rgba(16,185,129,.28)}
+.ncbtn.on b{color:#6EE7B7}
+@media (max-width:340px){ .ncbtn span{display:none} }
+.aroute .amus{margin-left:auto;text-align:right;min-width:0}
+.aroute .amus b{display:block;font-size:.92rem;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aroute .amus .tlink{font-size:.82rem;padding:2px 0}
+.amode{margin-top:12px;padding:12px 14px;border-radius:16px;background:rgba(139,92,246,.1);font-size:.88rem;line-height:1.4;color:var(--ink-2)}
+.amode b{display:flex;align-items:center;gap:6px;color:var(--ink);margin-bottom:3px;font-size:.95rem}
+.asheet .setrow{padding:14px 0;align-items:flex-start}
+.asheet .setrow .lbl{display:block}
+.asheet .setrow .lbl svg{vertical-align:-3px;margin-right:6px}
+.asheet .setrow .lbl small{display:block;color:var(--muted);font-size:.82rem;line-height:1.35;margin-top:3px;font-weight:400}
+.asheet .setrow.col{flex-direction:column;gap:10px;border-top:1px solid var(--line)}
+.asheet .setrow .toggle{flex:none;margin-top:2px}
+.asheet .fld,.msheet .fld{margin:8px 0}
+.aproc{display:flex;gap:8px;align-items:flex-start;margin-top:10px;padding:11px 13px;border-radius:14px;background:var(--s2);color:var(--muted);font-size:.82rem;line-height:1.4}
+.aproc svg{flex:none;margin-top:2px}
+.msheet{padding:4px 20px 0}
+.msheet h3{margin:0 0 12px}
+.mlist{display:flex;flex-direction:column;gap:6px;max-height:min(46vh,380px);overflow:auto;overscroll-behavior:contain;margin-bottom:10px}
+.mrow{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:16px;background:var(--s2);border:1.5px solid transparent;cursor:pointer;min-height:56px}
+.mrow[aria-checked="true"]{border-color:var(--violet);background:rgba(139,92,246,.12)}
+.mrow .rd{width:20px;height:20px;border-radius:50%;border:2px solid var(--faint);flex:none}
+.mrow[aria-checked="true"] .rd{border-color:var(--violet);box-shadow:inset 0 0 0 4px #1A1A1E;background:var(--violet)}
+.mrow .mi{color:var(--muted);flex:none;display:flex}
+.mrow .mt{flex:1;min-width:0}
+.mrow .mt b{display:block;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow .mt small{display:block;color:var(--muted);font-size:.8rem;line-height:1.3}
+.mrow .mprev{flex:none;width:44px;height:44px;background:var(--s3)}
+.mrow .mprev.on{background:var(--brand);color:#fff}
+.msheet .btn.block{width:100%;margin:8px 0 6px}
+.srcs{display:flex;flex-direction:column;gap:8px;margin:4px 16px 8px}
+.srcs .src{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:14px;background:var(--s2);font-size:.86rem;line-height:1.4;color:var(--ink-2)}
+.srcs .src svg{flex:none;margin-top:2px;color:var(--muted)}
+.srcs .src b{color:var(--ink)}
+
 </style>
 </head>
 <body>
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /></symbol><symbol id="i-aperture" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m14.31 8 5.74 9.94" /> <path d="M9.69 8h11.48" /> <path d="m7.38 12 5.74-9.94" /> <path d="M9.69 16 3.95 6.06" /> <path d="M14.31 16H2.83" /> <path d="m16.62 12-5.74 9.94" /></symbol><symbol id="i-audio-lines" viewBox="0 0 24 24"><path d="M2 10v3" /> <path d="M6 6v11" /> <path d="M10 3v18" /> <path d="M14 8v7" /> <path d="M18 5v13" /> <path d="M22 10v3" /></symbol><symbol id="i-audio-waveform" viewBox="0 0 24 24"><path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2" /></symbol><symbol id="i-badge" viewBox="0 0 24 24"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" /></symbol><symbol id="i-badge-check" viewBox="0 0 24 24"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" /> <path d="m16 9-5.5 5.5L8 12" /></symbol><symbol id="i-bed" viewBox="0 0 24 24"><path d="M2 4v16" /> <path d="M2 8h18a2 2 0 0 1 2 2v10" /> <path d="M2 17h20" /> <path d="M6 8v9" /></symbol><symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /></symbol><symbol id="i-bluetooth" viewBox="0 0 24 24"><path d="m7 7 10 10-5 5V2l5 5L7 17" /></symbol><symbol id="i-book-open" viewBox="0 0 24 24"><path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /></symbol><symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z" /></symbol><symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 8V4H8" /> <rect width="16" height="12" x="4" y="8" rx="2" /> <path d="M2 14h2" /> <path d="M20 14h2" /> <path d="M15 13v2" /> <path d="M9 13v2" /></symbol><symbol id="i-camera" viewBox="0 0 24 24"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" /> <circle cx="12" cy="13" r="3" /></symbol><symbol id="i-captions" viewBox="0 0 24 24"><rect width="18" height="14" x="3" y="5" rx="2" ry="2" /> <path d="M7 15h4M15 15h2M7 11h2M13 11h4" /></symbol><symbol id="i-cassette-tape" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2" /> <circle cx="8" cy="10" r="2" /> <path d="M8 12h8" /> <circle cx="16" cy="10" r="2" /> <path d="m6 20 .7-2.9A1.4 1.4 0 0 1 8.1 16h7.8a1.4 1.4 0 0 1 1.4 1l.7 3" /></symbol><symbol id="i-cat" viewBox="0 0 24 24"><path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z" /> <path d="M8 14v.5" /> <path d="M16 14v.5" /> <path d="M11.25 16.25h1.5L12 17l-.75-.75Z" /></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol><symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></symbol><symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></symbol><symbol id="i-chevrons-down" viewBox="0 0 24 24"><path d="m7 6 5 5 5-5" /> <path d="m7 13 5 5 5-5" /></symbol><symbol id="i-chevrons-left" viewBox="0 0 24 24"><path d="m11 17-5-5 5-5" /> <path d="m18 17-5-5 5-5" /></symbol><symbol id="i-chevrons-right" viewBox="0 0 24 24"><path d="m6 17 5-5-5-5" /> <path d="m13 17 5-5-5-5" /></symbol><symbol id="i-chevrons-up" viewBox="0 0 24 24"><path d="m17 11-5-5-5 5" /> <path d="m17 18-5-5-5 5" /></symbol><symbol id="i-chevrons-up-down" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5" /> <path d="m7 9 5-5 5 5" /></symbol><symbol id="i-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></symbol><symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m16 9-5.5 5.5L8 12" /></symbol><symbol id="i-clapperboard" viewBox="0 0 24 24"><path d="m12.296 3.464 3.02 3.956" /> <path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z" /> <path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /> <path d="m6.18 5.276 3.1 3.899" /></symbol><symbol id="i-cloud-download" viewBox="0 0 24 24"><path d="M12 13v8l-4-4" /> <path d="m12 21 4-4" /> <path d="M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.436 8.284" /></symbol><symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" /></symbol><symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /> <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></symbol><symbol id="i-dices" viewBox="0 0 24 24"><rect width="12" height="12" x="2" y="10" rx="2" ry="2" /> <path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6" /> <path d="M6 18h.01" /> <path d="M10 14h.01" /> <path d="M15 6h.01" /> <path d="M18 9h.01" /></symbol><symbol id="i-disc-3" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="M6 12c0-1.7.7-3.2 1.8-4.2" /> <circle cx="12" cy="12" r="2" /> <path d="M18 12c0 1.7-.7 3.2-1.8 4.2" /></symbol><symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1" /></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /></symbol><symbol id="i-drum" viewBox="0 0 24 24"><path d="m2 2 8 8" /> <path d="m22 2-8 8" /> <ellipse cx="12" cy="9" rx="10" ry="5" /> <path d="M7 13.4v7.9" /> <path d="M12 14v8" /> <path d="M17 13.4v7.9" /> <path d="M2 9v8a10 5 0 0 0 20 0V9" /></symbol><symbol id="i-eighth-notes" viewBox="0 0 24 24"><path d="M21 16V3a1 1 0 0 0-1.28-.96l-10 2.917a1 1 0 0 0-.72.96V19" /> <circle cx="18" cy="16" r="3" /> <circle cx="6" cy="19" r="3" /></symbol><symbol id="i-ellipsis" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1" /> <circle cx="19" cy="12" r="1" /> <circle cx="5" cy="12" r="1" /></symbol><symbol id="i-ellipsis-vertical" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1" /> <circle cx="12" cy="5" r="1" /> <circle cx="12" cy="19" r="1" /></symbol><symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /> <circle cx="12" cy="12" r="3" /></symbol><symbol id="i-face-slightly-smiling" viewBox="0 0 24 24"><path d="M15 10V9" /> <path d="M16.472 15a6 6 0 01-8.943 0" /> <path d="M9 10V9" /> <circle cx="12" cy="12" r="10" /></symbol><symbol id="i-feather" viewBox="0 0 24 24"><path d="M14.086 18.412A2 2 0 0112.67 19H5v-7.672a2 2 0 01.586-1.414L11.75 3.75a6 6 0 118.49 8.49z" /> <path d="M16 8 2 22" /> <path d="M17.488 15H9" /></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /> <path d="M14 2v5a1 1 0 0 0 1 1h5" /></symbol><symbol id="i-files" viewBox="0 0 24 24"><path d="M15 2h-4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8" /> <path d="M16.706 2.706A2.4 2.4 0 0 0 15 2v5a1 1 0 0 0 1 1h5a2.4 2.4 0 0 0-.706-1.706z" /> <path d="M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1" /></symbol><symbol id="i-film" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /> <path d="M7 3v18" /> <path d="M3 7.5h4" /> <path d="M3 12h18" /> <path d="M3 16.5h4" /> <path d="M17 3v18" /> <path d="M17 7.5h4" /> <path d="M17 16.5h4" /></symbol><symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4" /></symbol><symbol id="i-focus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /> <path d="M3 7V5a2 2 0 0 1 2-2h2" /> <path d="M17 3h2a2 2 0 0 1 2 2v2" /> <path d="M21 17v2a2 2 0 0 1-2 2h-2" /> <path d="M7 21H5a2 2 0 0 1-2-2v-2" /></symbol><symbol id="i-funnel" viewBox="0 0 24 24"><path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z" /></symbol><symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4" /> <path d="M3.34 19a10 10 0 1 1 17.32 0" /></symbol><symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /></symbol><symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" /></symbol><symbol id="i-headset" viewBox="0 0 24 24"><path d="M3 11h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Zm0 0a9 9 0 1 1 18 0m0 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3Z" /> <path d="M21 16v2a4 4 0 0 1-4 4h-5" /></symbol><symbol id="i-heart" viewBox="0 0 24 24"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" /></symbol><symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="M12 16v-4" /> <path d="M12 8h.01" /></symbol><symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /> <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /> <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /></symbol><symbol id="i-lectern" viewBox="0 0 24 24"><path d="M15 13h4a2 2 0 001.901-1.38l1.057-4.333A1 1 0 0021 6H3a1 1 0 00-.958 1.287L3.1 11.621A2 2 0 005.001 13h4" /> <path d="M15 22V11a1 1 0 00-1-1h-4a1 1 0 00-1 1v11" /> <path d="M18 22H6" /> <path d="M18 6V3a1 1 0 00-1-1h-3" /></symbol><symbol id="i-library" viewBox="0 0 24 24"><path d="m16 6 4 14" /> <path d="M12 6v14" /> <path d="M8 8v12" /> <path d="M4 4v16" /></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /> <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h.01" /> <path d="M3 12h.01" /> <path d="M3 19h.01" /> <path d="M8 5h13" /> <path d="M8 12h13" /> <path d="M8 19h13" /></symbol><symbol id="i-list-music" viewBox="0 0 24 24"><path d="M16 5H3" /> <path d="M11 12H3" /> <path d="M11 19H3" /> <path d="M21 16V5" /> <circle cx="18" cy="16" r="3" /></symbol><symbol id="i-list-plus" viewBox="0 0 24 24"><path d="M16 5H3" /> <path d="M11 12H3" /> <path d="M16 19H3" /> <path d="M18 9v6" /> <path d="M21 12h-6" /></symbol><symbol id="i-log-in" viewBox="0 0 24 24"><path d="m10 17 5-5-5-5" /> <path d="M15 12H3" /> <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /></symbol><symbol id="i-log-out" viewBox="0 0 24 24"><path d="m16 17 5-5-5-5" /> <path d="M21 12H9" /> <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /></symbol><symbol id="i-magnet" viewBox="0 0 24 24"><path d="m12 15 4 4" /> <path d="M2.352 10.648a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.029-6.029a1 1 0 1 1 3 3l-6.029 6.029a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.365-6.367A1 1 0 0 0 8.716 4.282z" /> <path d="m5 8 4 4" /></symbol><symbol id="i-mail" viewBox="0 0 24 24"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7" /> <rect x="2" y="4" width="20" height="16" rx="2" /></symbol><symbol id="i-megaphone" viewBox="0 0 24 24"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" /> <path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14" /> <path d="M8 6v8" /></symbol><symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /></symbol><symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 19v3" /> <path d="M19 10v2a7 7 0 0 1-14 0v-2" /> <rect x="9" y="2" width="6" height="13" rx="3" /></symbol><symbol id="i-mic-vocal" viewBox="0 0 24 24"><path d="m11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12" /> <path d="M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5" /> <circle cx="16" cy="7" r="5" /></symbol><symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol><symbol id="i-mirror-rectangular" viewBox="0 0 24 24"><path d="M11 6 8 9" /> <path d="m16 7-8 8" /> <rect x="4" y="2" width="16" height="20" rx="2" /></symbol><symbol id="i-monitor-speaker" viewBox="0 0 24 24"><path d="M5.5 20H8" /> <path d="M17 9h.01" /> <rect width="10" height="16" x="12" y="4" rx="2" /> <path d="M8 6H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h4" /> <circle cx="17" cy="15" r="1" /></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /></symbol><symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1" /> <rect x="5" y="3" width="5" height="18" rx="1" /></symbol><symbol id="i-pen-line" viewBox="0 0 24 24"><path d="M13 21h8" /> <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" /></symbol><symbol id="i-phone" viewBox="0 0 24 24"><path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384" /></symbol><symbol id="i-piano" viewBox="0 0 24 24"><path d="M10 13v4" /> <path d="M14 13v4" /> <path d="M18 13v4" /> <path d="M2 13h20" /> <path d="M22 11.5A3.5 3.5 0 0018.5 8a3.52 3.52 0 01-3.173-2A7 7 0 002 9v10a2 2 0 002 2h16a2 2 0 002-2z" /> <path d="M6 13v4" /></symbol><symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14" /> <path d="M12 5v14" /></symbol><symbol id="i-radio" viewBox="0 0 24 24"><path d="M16.247 7.761a6 6 0 0 1 0 8.478" /> <path d="M19.075 4.933a10 10 0 0 1 0 14.134" /> <path d="M4.925 19.067a10 10 0 0 1 0-14.134" /> <path d="M7.753 16.239a6 6 0 0 1 0-8.478" /> <circle cx="12" cy="12" r="2" /></symbol><symbol id="i-redo-2" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5" /> <path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" /></symbol><symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /> <path d="M21 3v5h-5" /> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /> <path d="M8 16H3v5" /></symbol><symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4" /> <path d="M3 11v-1a4 4 0 0 1 4-4h14" /> <path d="m7 22-4-4 4-4" /> <path d="M21 13v1a4 4 0 0 1-4 4H3" /></symbol><symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /></symbol><symbol id="i-rotate-ccw-clock" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> <path d="M12 7v5l4 2" /></symbol><symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /> <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" /> <path d="M7 3v4a1 1 0 0 0 1 1h7" /></symbol><symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3" /> <path d="M8.12 8.12 12 12" /> <path d="M20 4 8.12 15.88" /> <circle cx="6" cy="18" r="3" /> <path d="M14.8 14.8 20 20" /></symbol><symbol id="i-scroll" viewBox="0 0 24 24"><path d="M19 17V5a2 2 0 0 0-2-2H4" /> <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" /></symbol><symbol id="i-scroll-text" viewBox="0 0 24 24"><path d="M15 12h-5" /> <path d="M15 8h-5" /> <path d="M19 17V5a2 2 0 0 0-2-2H4" /> <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" /></symbol><symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /></symbol><symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2" /> <rect width="20" height="8" x="2" y="14" rx="2" ry="2" /> <line x1="6" x2="6.01" y1="6" y2="6" /> <line x1="6" x2="6.01" y1="18" y2="18" /></symbol><symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /> <circle cx="12" cy="12" r="3" /></symbol><symbol id="i-share" viewBox="0 0 24 24"><path d="M12 2v13" /> <path d="m16 6-4-4-4 4" /> <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /></symbol><symbol id="i-share-2" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3" /> <circle cx="6" cy="12" r="3" /> <circle cx="18" cy="19" r="3" /> <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" /> <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" /></symbol><symbol id="i-sheet" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /> <line x1="3" x2="21" y1="9" y2="9" /> <line x1="3" x2="21" y1="15" y2="15" /> <line x1="9" x2="9" y1="9" y2="21" /> <line x1="15" x2="15" y1="9" y2="21" /></symbol><symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /> <path d="m9 12 2 2 4-4" /></symbol><symbol id="i-skip-back" viewBox="0 0 24 24"><path d="M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z" /> <path d="M3 20V4" /></symbol><symbol id="i-sliders-horizontal" viewBox="0 0 24 24"><path d="M10 5H3" /> <path d="M12 19H3" /> <path d="M14 3v4" /> <path d="M16 17v4" /> <path d="M21 12h-9" /> <path d="M21 19h-5" /> <path d="M21 5h-7" /> <path d="M8 10v4" /> <path d="M8 12H3" /></symbol><symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" /> <path d="M20 2v4" /> <path d="M22 4h-4" /> <circle cx="4" cy="20" r="2" /></symbol><symbol id="i-speaker" viewBox="0 0 24 24"><rect width="16" height="20" x="4" y="2" rx="2" /> <path d="M12 6h.01" /> <circle cx="12" cy="14" r="4" /> <path d="M12 14h.01" /></symbol><symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /></symbol><symbol id="i-square-pen" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /> <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" /></symbol><symbol id="i-star" viewBox="0 0 24 24"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></symbol><symbol id="i-switch-camera" viewBox="0 0 24 24"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" /> <path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" /> <circle cx="12" cy="12" r="3" /> <path d="m18 22-3-3 3-3" /> <path d="m6 2 3 3-3 3" /></symbol><symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" /> <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" /></symbol><symbol id="i-theater" viewBox="0 0 24 24"><path d="M2 10s3-3 3-8" /> <path d="M22 10s-3-3-3-8" /> <path d="M10 2c0 4.4-3.6 8-8 8" /> <path d="M14 2c0 4.4 3.6 8 8 8" /> <path d="M2 10s2 2 2 5" /> <path d="M22 10s-2 2-2 5" /> <path d="M8 15h8" /> <path d="M2 22v-1a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1" /> <path d="M14 22v-1a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1" /></symbol><symbol id="i-thumbs-up" viewBox="0 0 24 24"><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" /> <path d="M7 10v12" /></symbol><symbol id="i-timeline" viewBox="0 0 24 24"><path d="M4 12h.01" /> <path d="M4 16h.01" /> <path d="M4 20h.01" /> <path d="M4 4h.01" /> <path d="M4 8h.01" /> <path d="M9.414 13.414a2 2 0 0 0 1.414.586H19a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-8.172a2 2 0 0 0-1.414.586L8 12z" /> <path d="M9.414 21.414a2 2 0 0 0 1.414.586H19a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-8.172a2 2 0 0 0-1.414.586L8 20z" /> <path d="M9.414 5.414A2 2 0 0 0 10.828 6H19a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1h-8.172a2 2 0 0 0-1.414.586L8 4z" /></symbol><symbol id="i-timer" viewBox="0 0 24 24"><line x1="10" x2="14" y1="2" y2="2" /> <line x1="12" x2="15" y1="14" y2="11" /> <circle cx="12" cy="14" r="8" /></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M10 11v6" /> <path d="M14 11v6" /> <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /> <path d="M3 6h18" /> <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></symbol><symbol id="i-triangle" viewBox="0 0 24 24"><path d="M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /></symbol><symbol id="i-turtle" viewBox="0 0 24 24"><path d="m12 10 2 4v3a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-3a8 8 0 1 0-16 0v3a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-3l2-4h4Z" /> <path d="M4.82 7.9 8 10" /> <path d="M15.18 7.9 12 10" /> <path d="M16.93 10H20a2 2 0 0 1 0 4H2" /></symbol><symbol id="i-undo-2" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /> <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" /></symbol><symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 3v12" /> <path d="m17 8-5-5-5 5" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></symbol><symbol id="i-usb" viewBox="0 0 24 24"><circle cx="10" cy="7" r="1" /> <circle cx="4" cy="20" r="1" /> <path d="M4.7 19.3 19 5" /> <path d="m21 3-3 1 2 2Z" /> <path d="M9.26 7.68 5 12l2 5" /> <path d="m10 14 5 2 3.5-3.5" /> <path d="m18 12 1-1 1 1-1 1Z" /></symbol><symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /> <circle cx="12" cy="7" r="4" /></symbol><symbol id="i-user-round" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5" /> <path d="M20 21a8 8 0 0 0-16 0" /></symbol><symbol id="i-video" viewBox="0 0 24 24"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /> <rect x="2" y="6" width="14" height="12" rx="2" /></symbol><symbol id="i-volume-2" viewBox="0 0 24 24"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" /> <path d="M16 9a5 5 0 0 1 0 6" /> <path d="M19.364 18.364a9 9 0 0 0 0-12.728" /></symbol><symbol id="i-volume-x" viewBox="0 0 24 24"><path d="M11 4.702a.7.7 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.7.7 0 0 0 11 19.298z" /> <path d="m16.5 14.5 5-5" /> <path d="m16.5 9.5 5 5" /></symbol><symbol id="i-wand-sparkles" viewBox="0 0 24 24"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" /> <path d="m14 7 3 3" /> <path d="M5 6v4" /> <path d="M19 14v4" /> <path d="M10 2v2" /> <path d="M7 8H3" /> <path d="M21 16h-4" /> <path d="M11 3H9" /></symbol><symbol id="i-waves-horizontal" viewBox="0 0 24 24"><path d="M2 12q2.5 2 5 0t5 0 5 0 5 0" /> <path d="M2 19q2.5 2 5 0t5 0 5 0 5 0" /> <path d="M2 5q2.5 2 5 0t5 0 5 0 5 0" /></symbol><symbol id="i-wifi-off" viewBox="0 0 24 24"><path d="M12 20h.01" /> <path d="M8.5 16.429a5 5 0 0 1 7 0" /> <path d="M5 12.859a10 10 0 0 1 5.17-2.69" /> <path d="M19 12.859a10 10 0 0 0-2.007-1.523" /> <path d="M2 8.82a15 15 0 0 1 4.177-2.643" /> <path d="M22 8.82a15 15 0 0 0-11.288-3.764" /> <path d="m2 2 20 20" /></symbol><symbol id="i-wind" viewBox="0 0 24 24"><path d="M12.8 19.6A2 2 0 1 0 14 16H2" /> <path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" /> <path d="M9.8 4.4A2 2 0 1 1 11 8H2" /></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18" /> <path d="m6 6 12 12" /></symbol><symbol id="i-zap" viewBox="0 0 24 24"><path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z" /></symbol><symbol id="i-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /> <line x1="21" x2="16.65" y1="21" y2="16.65" /> <line x1="11" x2="11" y1="8" y2="14" /> <line x1="8" x2="14" y1="11" y2="11" /></symbol><symbol id="i-zoom-out" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /> <line x1="21" x2="16.65" y1="21" y2="16.65" /> <line x1="8" x2="14" y1="11" y2="11" /></symbol></svg>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /></symbol><symbol id="i-aperture" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m14.31 8 5.74 9.94" /> <path d="M9.69 8h11.48" /> <path d="m7.38 12 5.74-9.94" /> <path d="M9.69 16 3.95 6.06" /> <path d="M14.31 16H2.83" /> <path d="m16.62 12-5.74 9.94" /></symbol><symbol id="i-audio-lines" viewBox="0 0 24 24"><path d="M2 10v3" /> <path d="M6 6v11" /> <path d="M10 3v18" /> <path d="M14 8v7" /> <path d="M18 5v13" /> <path d="M22 10v3" /></symbol><symbol id="i-audio-waveform" viewBox="0 0 24 24"><path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2" /></symbol><symbol id="i-badge" viewBox="0 0 24 24"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" /></symbol><symbol id="i-badge-check" viewBox="0 0 24 24"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" /> <path d="m16 9-5.5 5.5L8 12" /></symbol><symbol id="i-bed" viewBox="0 0 24 24"><path d="M2 4v16" /> <path d="M2 8h18a2 2 0 0 1 2 2v10" /> <path d="M2 17h20" /> <path d="M6 8v9" /></symbol><symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /></symbol><symbol id="i-bluetooth" viewBox="0 0 24 24"><path d="m7 7 10 10-5 5V2l5 5L7 17" /></symbol><symbol id="i-book-open" viewBox="0 0 24 24"><path d="M12 5v16" /> <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" /></symbol><symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z" /></symbol><symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 8V4H8" /> <rect width="16" height="12" x="4" y="8" rx="2" /> <path d="M2 14h2" /> <path d="M20 14h2" /> <path d="M15 13v2" /> <path d="M9 13v2" /></symbol><symbol id="i-camera" viewBox="0 0 24 24"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" /> <circle cx="12" cy="13" r="3" /></symbol><symbol id="i-captions" viewBox="0 0 24 24"><rect width="18" height="14" x="3" y="5" rx="2" ry="2" /> <path d="M7 15h4M15 15h2M7 11h2M13 11h4" /></symbol><symbol id="i-cassette-tape" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2" /> <circle cx="8" cy="10" r="2" /> <path d="M8 12h8" /> <circle cx="16" cy="10" r="2" /> <path d="m6 20 .7-2.9A1.4 1.4 0 0 1 8.1 16h7.8a1.4 1.4 0 0 1 1.4 1l.7 3" /></symbol><symbol id="i-cat" viewBox="0 0 24 24"><path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z" /> <path d="M8 14v.5" /> <path d="M16 14v.5" /> <path d="M11.25 16.25h1.5L12 17l-.75-.75Z" /></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol><symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></symbol><symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></symbol><symbol id="i-chevrons-down" viewBox="0 0 24 24"><path d="m7 6 5 5 5-5" /> <path d="m7 13 5 5 5-5" /></symbol><symbol id="i-chevrons-left" viewBox="0 0 24 24"><path d="m11 17-5-5 5-5" /> <path d="m18 17-5-5 5-5" /></symbol><symbol id="i-chevrons-right" viewBox="0 0 24 24"><path d="m6 17 5-5-5-5" /> <path d="m13 17 5-5-5-5" /></symbol><symbol id="i-chevrons-up" viewBox="0 0 24 24"><path d="m17 11-5-5-5 5" /> <path d="m17 18-5-5-5 5" /></symbol><symbol id="i-chevrons-up-down" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5" /> <path d="m7 9 5-5 5 5" /></symbol><symbol id="i-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></symbol><symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m16 9-5.5 5.5L8 12" /></symbol><symbol id="i-clapperboard" viewBox="0 0 24 24"><path d="m12.296 3.464 3.02 3.956" /> <path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z" /> <path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /> <path d="m6.18 5.276 3.1 3.899" /></symbol><symbol id="i-cloud-download" viewBox="0 0 24 24"><path d="M12 13v8l-4-4" /> <path d="m12 21 4-4" /> <path d="M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.436 8.284" /></symbol><symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" /></symbol><symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /> <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></symbol><symbol id="i-dices" viewBox="0 0 24 24"><rect width="12" height="12" x="2" y="10" rx="2" ry="2" /> <path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6" /> <path d="M6 18h.01" /> <path d="M10 14h.01" /> <path d="M15 6h.01" /> <path d="M18 9h.01" /></symbol><symbol id="i-disc-3" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="M6 12c0-1.7.7-3.2 1.8-4.2" /> <circle cx="12" cy="12" r="2" /> <path d="M18 12c0 1.7-.7 3.2-1.8 4.2" /></symbol><symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1" /></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /></symbol><symbol id="i-drum" viewBox="0 0 24 24"><path d="m2 2 8 8" /> <path d="m22 2-8 8" /> <ellipse cx="12" cy="9" rx="10" ry="5" /> <path d="M7 13.4v7.9" /> <path d="M12 14v8" /> <path d="M17 13.4v7.9" /> <path d="M2 9v8a10 5 0 0 0 20 0V9" /></symbol><symbol id="i-ear" viewBox="0 0 24 24"><path d="M6 8.5a6.5 6.5 0 1 1 13 0c0 6-6 6-6 10a3.5 3.5 0 1 1-7 0" /> <path d="M15 8.5a2.5 2.5 0 0 0-5 0v1a2 2 0 1 1 0 4" /></symbol><symbol id="i-eighth-notes" viewBox="0 0 24 24"><path d="M21 16V3a1 1 0 0 0-1.28-.96l-10 2.917a1 1 0 0 0-.72.96V19" /> <circle cx="18" cy="16" r="3" /> <circle cx="6" cy="19" r="3" /></symbol><symbol id="i-ellipsis" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1" /> <circle cx="19" cy="12" r="1" /> <circle cx="5" cy="12" r="1" /></symbol><symbol id="i-ellipsis-vertical" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1" /> <circle cx="12" cy="5" r="1" /> <circle cx="12" cy="19" r="1" /></symbol><symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /> <circle cx="12" cy="12" r="3" /></symbol><symbol id="i-face-slightly-smiling" viewBox="0 0 24 24"><path d="M15 10V9" /> <path d="M16.472 15a6 6 0 01-8.943 0" /> <path d="M9 10V9" /> <circle cx="12" cy="12" r="10" /></symbol><symbol id="i-feather" viewBox="0 0 24 24"><path d="M14.086 18.412A2 2 0 0112.67 19H5v-7.672a2 2 0 01.586-1.414L11.75 3.75a6 6 0 118.49 8.49z" /> <path d="M16 8 2 22" /> <path d="M17.488 15H9" /></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /> <path d="M14 2v5a1 1 0 0 0 1 1h5" /></symbol><symbol id="i-files" viewBox="0 0 24 24"><path d="M15 2h-4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8" /> <path d="M16.706 2.706A2.4 2.4 0 0 0 15 2v5a1 1 0 0 0 1 1h5a2.4 2.4 0 0 0-.706-1.706z" /> <path d="M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1" /></symbol><symbol id="i-film" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /> <path d="M7 3v18" /> <path d="M3 7.5h4" /> <path d="M3 12h18" /> <path d="M3 16.5h4" /> <path d="M17 3v18" /> <path d="M17 7.5h4" /> <path d="M17 16.5h4" /></symbol><symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4" /></symbol><symbol id="i-focus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /> <path d="M3 7V5a2 2 0 0 1 2-2h2" /> <path d="M17 3h2a2 2 0 0 1 2 2v2" /> <path d="M21 17v2a2 2 0 0 1-2 2h-2" /> <path d="M7 21H5a2 2 0 0 1-2-2v-2" /></symbol><symbol id="i-funnel" viewBox="0 0 24 24"><path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z" /></symbol><symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4" /> <path d="M3.34 19a10 10 0 1 1 17.32 0" /></symbol><symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /></symbol><symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" /></symbol><symbol id="i-headset" viewBox="0 0 24 24"><path d="M3 11h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Zm0 0a9 9 0 1 1 18 0m0 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3Z" /> <path d="M21 16v2a4 4 0 0 1-4 4h-5" /></symbol><symbol id="i-heart" viewBox="0 0 24 24"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" /></symbol><symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="M12 16v-4" /> <path d="M12 8h.01" /></symbol><symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /> <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /> <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /></symbol><symbol id="i-lectern" viewBox="0 0 24 24"><path d="M15 13h4a2 2 0 001.901-1.38l1.057-4.333A1 1 0 0021 6H3a1 1 0 00-.958 1.287L3.1 11.621A2 2 0 005.001 13h4" /> <path d="M15 22V11a1 1 0 00-1-1h-4a1 1 0 00-1 1v11" /> <path d="M18 22H6" /> <path d="M18 6V3a1 1 0 00-1-1h-3" /></symbol><symbol id="i-library" viewBox="0 0 24 24"><path d="m16 6 4 14" /> <path d="M12 6v14" /> <path d="M8 8v12" /> <path d="M4 4v16" /></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /> <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h.01" /> <path d="M3 12h.01" /> <path d="M3 19h.01" /> <path d="M8 5h13" /> <path d="M8 12h13" /> <path d="M8 19h13" /></symbol><symbol id="i-list-music" viewBox="0 0 24 24"><path d="M16 5H3" /> <path d="M11 12H3" /> <path d="M11 19H3" /> <path d="M21 16V5" /> <circle cx="18" cy="16" r="3" /></symbol><symbol id="i-list-plus" viewBox="0 0 24 24"><path d="M16 5H3" /> <path d="M11 12H3" /> <path d="M16 19H3" /> <path d="M18 9v6" /> <path d="M21 12h-6" /></symbol><symbol id="i-log-in" viewBox="0 0 24 24"><path d="m10 17 5-5-5-5" /> <path d="M15 12H3" /> <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /></symbol><symbol id="i-log-out" viewBox="0 0 24 24"><path d="m16 17 5-5-5-5" /> <path d="M21 12H9" /> <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /></symbol><symbol id="i-magnet" viewBox="0 0 24 24"><path d="m12 15 4 4" /> <path d="M2.352 10.648a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.029-6.029a1 1 0 1 1 3 3l-6.029 6.029a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.365-6.367A1 1 0 0 0 8.716 4.282z" /> <path d="m5 8 4 4" /></symbol><symbol id="i-mail" viewBox="0 0 24 24"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7" /> <rect x="2" y="4" width="20" height="16" rx="2" /></symbol><symbol id="i-megaphone" viewBox="0 0 24 24"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" /> <path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14" /> <path d="M8 6v8" /></symbol><symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 5h16" /> <path d="M4 12h16" /> <path d="M4 19h16" /></symbol><symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 19v3" /> <path d="M19 10v2a7 7 0 0 1-14 0v-2" /> <rect x="9" y="2" width="6" height="13" rx="3" /></symbol><symbol id="i-mic-vocal" viewBox="0 0 24 24"><path d="m11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12" /> <path d="M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5" /> <circle cx="16" cy="7" r="5" /></symbol><symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol><symbol id="i-mirror-rectangular" viewBox="0 0 24 24"><path d="M11 6 8 9" /> <path d="m16 7-8 8" /> <rect x="4" y="2" width="16" height="20" rx="2" /></symbol><symbol id="i-monitor-speaker" viewBox="0 0 24 24"><path d="M5.5 20H8" /> <path d="M17 9h.01" /> <rect width="10" height="16" x="12" y="4" rx="2" /> <path d="M8 6H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h4" /> <circle cx="17" cy="15" r="1" /></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /></symbol><symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1" /> <rect x="5" y="3" width="5" height="18" rx="1" /></symbol><symbol id="i-pen-line" viewBox="0 0 24 24"><path d="M13 21h8" /> <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" /></symbol><symbol id="i-phone" viewBox="0 0 24 24"><path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384" /></symbol><symbol id="i-piano" viewBox="0 0 24 24"><path d="M10 13v4" /> <path d="M14 13v4" /> <path d="M18 13v4" /> <path d="M2 13h20" /> <path d="M22 11.5A3.5 3.5 0 0018.5 8a3.52 3.52 0 01-3.173-2A7 7 0 002 9v10a2 2 0 002 2h16a2 2 0 002-2z" /> <path d="M6 13v4" /></symbol><symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14" /> <path d="M12 5v14" /></symbol><symbol id="i-radio" viewBox="0 0 24 24"><path d="M16.247 7.761a6 6 0 0 1 0 8.478" /> <path d="M19.075 4.933a10 10 0 0 1 0 14.134" /> <path d="M4.925 19.067a10 10 0 0 1 0-14.134" /> <path d="M7.753 16.239a6 6 0 0 1 0-8.478" /> <circle cx="12" cy="12" r="2" /></symbol><symbol id="i-redo-2" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5" /> <path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" /></symbol><symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /> <path d="M21 3v5h-5" /> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /> <path d="M8 16H3v5" /></symbol><symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4" /> <path d="M3 11v-1a4 4 0 0 1 4-4h14" /> <path d="m7 22-4-4 4-4" /> <path d="M21 13v1a4 4 0 0 1-4 4H3" /></symbol><symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /></symbol><symbol id="i-rotate-ccw-clock" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> <path d="M12 7v5l4 2" /></symbol><symbol id="i-save" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /> <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" /> <path d="M7 3v4a1 1 0 0 0 1 1h7" /></symbol><symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3" /> <path d="M8.12 8.12 12 12" /> <path d="M20 4 8.12 15.88" /> <circle cx="6" cy="18" r="3" /> <path d="M14.8 14.8 20 20" /></symbol><symbol id="i-scroll" viewBox="0 0 24 24"><path d="M19 17V5a2 2 0 0 0-2-2H4" /> <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" /></symbol><symbol id="i-scroll-text" viewBox="0 0 24 24"><path d="M15 12h-5" /> <path d="M15 8h-5" /> <path d="M19 17V5a2 2 0 0 0-2-2H4" /> <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" /></symbol><symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /></symbol><symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2" /> <rect width="20" height="8" x="2" y="14" rx="2" ry="2" /> <line x1="6" x2="6.01" y1="6" y2="6" /> <line x1="6" x2="6.01" y1="18" y2="18" /></symbol><symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /> <circle cx="12" cy="12" r="3" /></symbol><symbol id="i-settings-2" viewBox="0 0 24 24"><path d="M14 17H5" /> <path d="M19 7h-9" /> <circle cx="17" cy="17" r="3" /> <circle cx="7" cy="7" r="3" /></symbol><symbol id="i-share" viewBox="0 0 24 24"><path d="M12 2v13" /> <path d="m16 6-4-4-4 4" /> <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /></symbol><symbol id="i-share-2" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3" /> <circle cx="6" cy="12" r="3" /> <circle cx="18" cy="19" r="3" /> <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" /> <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" /></symbol><symbol id="i-sheet" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /> <line x1="3" x2="21" y1="9" y2="9" /> <line x1="3" x2="21" y1="15" y2="15" /> <line x1="9" x2="9" y1="9" y2="21" /> <line x1="15" x2="15" y1="9" y2="21" /></symbol><symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /> <path d="m9 12 2 2 4-4" /></symbol><symbol id="i-skip-back" viewBox="0 0 24 24"><path d="M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z" /> <path d="M3 20V4" /></symbol><symbol id="i-sliders-horizontal" viewBox="0 0 24 24"><path d="M10 5H3" /> <path d="M12 19H3" /> <path d="M14 3v4" /> <path d="M16 17v4" /> <path d="M21 12h-9" /> <path d="M21 19h-5" /> <path d="M21 5h-7" /> <path d="M8 10v4" /> <path d="M8 12H3" /></symbol><symbol id="i-smartphone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2" /> <path d="M12 18h.01" /></symbol><symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" /> <path d="M20 2v4" /> <path d="M22 4h-4" /> <circle cx="4" cy="20" r="2" /></symbol><symbol id="i-speaker" viewBox="0 0 24 24"><rect width="16" height="20" x="4" y="2" rx="2" /> <path d="M12 6h.01" /> <circle cx="12" cy="14" r="4" /> <path d="M12 14h.01" /></symbol><symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /></symbol><symbol id="i-square-pen" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /> <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" /></symbol><symbol id="i-star" viewBox="0 0 24 24"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></symbol><symbol id="i-switch-camera" viewBox="0 0 24 24"><path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" /> <path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" /> <circle cx="12" cy="12" r="3" /> <path d="m18 22-3-3 3-3" /> <path d="m6 2 3 3-3 3" /></symbol><symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" /> <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" /></symbol><symbol id="i-theater" viewBox="0 0 24 24"><path d="M2 10s3-3 3-8" /> <path d="M22 10s-3-3-3-8" /> <path d="M10 2c0 4.4-3.6 8-8 8" /> <path d="M14 2c0 4.4 3.6 8 8 8" /> <path d="M2 10s2 2 2 5" /> <path d="M22 10s-2 2-2 5" /> <path d="M8 15h8" /> <path d="M2 22v-1a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1" /> <path d="M14 22v-1a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1" /></symbol><symbol id="i-thumbs-up" viewBox="0 0 24 24"><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" /> <path d="M7 10v12" /></symbol><symbol id="i-timeline" viewBox="0 0 24 24"><path d="M4 12h.01" /> <path d="M4 16h.01" /> <path d="M4 20h.01" /> <path d="M4 4h.01" /> <path d="M4 8h.01" /> <path d="M9.414 13.414a2 2 0 0 0 1.414.586H19a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-8.172a2 2 0 0 0-1.414.586L8 12z" /> <path d="M9.414 21.414a2 2 0 0 0 1.414.586H19a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-8.172a2 2 0 0 0-1.414.586L8 20z" /> <path d="M9.414 5.414A2 2 0 0 0 10.828 6H19a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1h-8.172a2 2 0 0 0-1.414.586L8 4z" /></symbol><symbol id="i-timer" viewBox="0 0 24 24"><line x1="10" x2="14" y1="2" y2="2" /> <line x1="12" x2="15" y1="14" y2="11" /> <circle cx="12" cy="14" r="8" /></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M10 11v6" /> <path d="M14 11v6" /> <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /> <path d="M3 6h18" /> <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></symbol><symbol id="i-triangle" viewBox="0 0 24 24"><path d="M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /></symbol><symbol id="i-turtle" viewBox="0 0 24 24"><path d="m12 10 2 4v3a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-3a8 8 0 1 0-16 0v3a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-3l2-4h4Z" /> <path d="M4.82 7.9 8 10" /> <path d="M15.18 7.9 12 10" /> <path d="M16.93 10H20a2 2 0 0 1 0 4H2" /></symbol><symbol id="i-undo-2" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /> <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" /></symbol><symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 3v12" /> <path d="m17 8-5-5-5 5" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></symbol><symbol id="i-usb" viewBox="0 0 24 24"><circle cx="10" cy="7" r="1" /> <circle cx="4" cy="20" r="1" /> <path d="M4.7 19.3 19 5" /> <path d="m21 3-3 1 2 2Z" /> <path d="M9.26 7.68 5 12l2 5" /> <path d="m10 14 5 2 3.5-3.5" /> <path d="m18 12 1-1 1 1-1 1Z" /></symbol><symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /> <circle cx="12" cy="7" r="4" /></symbol><symbol id="i-user-round" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5" /> <path d="M20 21a8 8 0 0 0-16 0" /></symbol><symbol id="i-video" viewBox="0 0 24 24"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /> <rect x="2" y="6" width="14" height="12" rx="2" /></symbol><symbol id="i-volume-2" viewBox="0 0 24 24"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" /> <path d="M16 9a5 5 0 0 1 0 6" /> <path d="M19.364 18.364a9 9 0 0 0 0-12.728" /></symbol><symbol id="i-volume-x" viewBox="0 0 24 24"><path d="M11 4.702a.7.7 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.7.7 0 0 0 11 19.298z" /> <path d="m16.5 14.5 5-5" /> <path d="m16.5 9.5 5 5" /></symbol><symbol id="i-wand-sparkles" viewBox="0 0 24 24"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" /> <path d="m14 7 3 3" /> <path d="M5 6v4" /> <path d="M19 14v4" /> <path d="M10 2v2" /> <path d="M7 8H3" /> <path d="M21 16h-4" /> <path d="M11 3H9" /></symbol><symbol id="i-waves-horizontal" viewBox="0 0 24 24"><path d="M2 12q2.5 2 5 0t5 0 5 0 5 0" /> <path d="M2 19q2.5 2 5 0t5 0 5 0 5 0" /> <path d="M2 5q2.5 2 5 0t5 0 5 0 5 0" /></symbol><symbol id="i-wifi-off" viewBox="0 0 24 24"><path d="M12 20h.01" /> <path d="M8.5 16.429a5 5 0 0 1 7 0" /> <path d="M5 12.859a10 10 0 0 1 5.17-2.69" /> <path d="M19 12.859a10 10 0 0 0-2.007-1.523" /> <path d="M2 8.82a15 15 0 0 1 4.177-2.643" /> <path d="M22 8.82a15 15 0 0 0-11.288-3.764" /> <path d="m2 2 20 20" /></symbol><symbol id="i-wind" viewBox="0 0 24 24"><path d="M12.8 19.6A2 2 0 1 0 14 16H2" /> <path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" /> <path d="M9.8 4.4A2 2 0 1 1 11 8H2" /></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18" /> <path d="m6 6 12 12" /></symbol><symbol id="i-zap" viewBox="0 0 24 24"><path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z" /></symbol><symbol id="i-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /> <line x1="21" x2="16.65" y1="21" y2="16.65" /> <line x1="11" x2="11" y1="8" y2="14" /> <line x1="8" x2="14" y1="11" y2="11" /></symbol><symbol id="i-zoom-out" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /> <line x1="21" x2="16.65" y1="21" y2="16.65" /> <line x1="8" x2="14" y1="11" y2="11" /></symbol></svg>
 <div id="splash" aria-hidden="true">
   <div class="sp-mark"><i></i><i></i><i></i><i></i><i></i><i></i></div>
   <div class="sp-name">Lectern</div>
@@ -956,6 +996,7 @@ table.bench th{color:var(--muted);font-weight:500}
     <span class="sp"></span>
     <div id="prog" aria-hidden="true"><i id="progFill"></i></div>
     <span class="sp"></span>
+    <button class="ncbtn glass" id="ncBtn" aria-pressed="false" aria-label="Noise cancellation"><svg class="i xs"><use href="#i-audio-lines"/></svg><span>Noise</span><b>Off</b></button>
     <button class="circ sm glass" id="routeBtn" aria-label="Audio"></button>
     <span class="spill"><span class="dot" id="dot"></span><span id="clock">0:00</span><span class="lvl" id="lvl" hidden><i id="lvlFill"></i></span></span>
   </div>
@@ -969,6 +1010,7 @@ table.bench th{color:var(--muted);font-weight:500}
       <label class="fld">Text size <input type="range" id="size" min="24" max="80" step="2"><output id="sizeO"></output></label>
       <label class="fld">Opacity <input type="range" id="opac" min="30" max="100" step="5"><output id="opacO"></output></label>
       <label class="fld not-song">Focus <input type="range" id="focusSl" min="10" max="80" step="1"><output id="focusO"></output></label>
+      <label class="fld">Mic level <input type="range" id="micGain" min="-12" max="12" step="1" aria-label="Microphone level"><output id="micGainO"></output></label>
       <label class="fld" id="recMusRow">Music in take <input type="range" id="recMus" min="0" max="100" step="5" aria-label="Music level in the recording"><output id="recMusO"></output></label>
       <label class="fld only-song">Lyric timing <input type="range" id="offs" min="-2" max="2" step="0.05"><output id="offsO"></output></label>
       <div class="fld only-line"><span>Voice</span><div class="chips" id="voiceSeg"><button class="chip" data-v="me">My voice</button><button class="chip" data-v="original">Original clip</button><button class="chip" data-v="dub">Dub clip</button><button class="chip" data-v="narrator">AI narrator</button></div></div>
@@ -2145,18 +2187,18 @@ refreshRoute();
 /* Mic preference: 'phone' keeps headphones on high-quality playback and records with the
    phone's own mic (what music apps do); 'headset' uses the headset mic (call quality on Bluetooth). */
 const micPref=()=>S.settings.micPref||'phone';
-function micConstraints(){
-  const headphones=ROUTE.output!=='speaker';
+/* Mic settings for a take. Voice-call noise suppression and auto-gain are always off:
+   they treat music as noise and pump the level. Echo cancellation is on only when the
+   recording plan asks for it (in-app music on the speaker, mixed digitally). */
+function micConstraints(plan){
+  const aec=plan?!!plan.aec:ROUTE.output==='speaker';
   const pref=micPref();
   const want=pref==='headset'&&ROUTE.inputs.find(i=>i.type==='bluetooth'||i.type==='headset');
   const builtin=ROUTE.inputs.find(i=>i.type==='builtin'&&i.id&&i.id!=='default');
-  const a={
-    channelCount:{ideal:1}, sampleRate:{ideal:48000}, sampleSize:{ideal:16},
-    // With headphones nothing leaks back into the mic, so echo cancellation only costs
-    // quality (and forces Bluetooth into call mode). On the speaker it stops the music
-    // bleeding into the vocal.
-    echoCancellation:!headphones, noiseSuppression:false, autoGainControl:false
-  };
+  const a={ channelCount:{ideal:1}, sampleRate:{ideal:48000}, sampleSize:{ideal:16},
+    echoCancellation:aec, noiseSuppression:false, autoGainControl:false };
+  // Chrome-specific switches some WebViews still honour
+  a.googEchoCancellation=aec; a.googNoiseSuppression=false; a.googAutoGainControl=false; a.googHighpassFilter=false;
   if(want&&want.id) a.deviceId={exact:want.id}; else if(pref==='phone'&&ROUTE.output==='bluetooth'&&builtin) a.deviceId={ideal:builtin.id};
   return a;
 }
@@ -2164,11 +2206,18 @@ async function prepareMicRoute(){
   if(!nativeRoute()) return;
   try{ await nat('AudioRoute','preferMic',{mic:micPref()==='headset'?'headset':'phone'}); }catch(e){}
 }
-async function openMic(){
+async function openMic(plan){
   await prepareMicRoute();
-  try{ return await navigator.mediaDevices.getUserMedia({audio:micConstraints(),video:false}); }
-  catch(e){ if(e&&(e.name==='OverconstrainedError'||e.name==='NotFoundError')) return navigator.mediaDevices.getUserMedia({audio:{echoCancellation:ROUTE.output==='speaker',noiseSuppression:false,autoGainControl:false},video:false}); throw e; }
+  let s;
+  try{ s=await navigator.mediaDevices.getUserMedia({audio:micConstraints(plan),video:false}); }
+  catch(e){ if(e&&(e.name==='OverconstrainedError'||e.name==='NotFoundError')) s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:plan?!!plan.aec:ROUTE.output==='speaker',noiseSuppression:false,autoGainControl:false},video:false}); else throw e; }
+  // Some devices ignore "off" for their own processing; ask once more, then report what stuck.
+  try{ const t=s.getAudioTracks()[0], st=t.getSettings(), want=plan?!!plan.aec:ROUTE.output==='speaker';
+    if(st.noiseSuppression||st.autoGainControl||(st.echoCancellation&&!want)) await t.applyConstraints({echoCancellation:want,noiseSuppression:false,autoGainControl:false}).catch(()=>{}); }catch(e){}
+  return s;
 }
+/* Is another app playing music right now? (Android only; null when unknown.) */
+async function externalMusicActive(){ if(!nativeRoute()) return null; try{ const r=await nat('AudioRoute','isMusicActive'); return !!r.active; }catch(e){ return null; } }
 async function releaseMicRoute(){ if(nativeRoute()) try{ await nat('AudioRoute','preferMic',{mic:'release'}); }catch(e){} }
 
 /* Level meter for a live stream: peak in dBFS and a clip counter. */
@@ -3315,12 +3364,13 @@ function pickMime(forExport){ if(!window.MediaRecorder) return null;
   const mp4=['video/mp4;codecs=avc1,mp4a.40.2','video/mp4'], webm=['video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm'];
   return (forExport?[...mp4,...webm]:[...webm,...mp4]).find(t=>MediaRecorder.isTypeSupported(t))||''; }
 function countdown(n){ return new Promise(res=>{ const el=$('#count'); if(n<=0){ res(); return; } el.hidden=false; let i=n; el.textContent=i; const iv=setInterval(()=>{ if(state!=='counting'){ clearInterval(iv); el.hidden=true; res(); return; } i--; if(i<=0){ clearInterval(iv); el.hidden=true; res(); } else el.textContent=i; },1000); }); }
-let recMixed=false, mic=null, meter=null, meterRaf=0, recStartPerf=0, musicOffset=0, musicMarked=false, stemRec=null, stemChunks=[], stemMime='', recDelay=0;
+let recMixed=false, recLive=false, recPlanNow=null, mic=null, meter=null, meterRaf=0, recStartPerf=0, musicOffset=0, musicMarked=false, stemRec=null, stemChunks=[], stemMime='', recDelay=0;
 async function startRecording(){
   if(!camOK){ toast('The camera isn’t available, so you can only rehearse.'); return; }
   const m=pickMime(); if(m===null){ toast('This device can’t record video.'); return; }
   if(!(await audioCheck())) return;
   if(TTS.on){ narratorStop(); toast('The narrator pauses while you record'); }
+  musicPreviewStop();
   if(songMode){ ac().resume(); player.pause(); player.seek(0); K.idx=-2; updateKara(); }
   else { bed.audio.pause(); try{ bed.audio.currentTime=0; }catch(e){} }
   rehearsing=false; state='counting'; pos=0; scroller.scrollTop=0; syncUI();
@@ -3331,7 +3381,11 @@ async function startRecording(){
     REC.mirrorBuf=null;
     if(songMode&&guideable(A)&&S.settings.guide){ try{ const k=musicKey(A,false); let b=BUFS.get(k); if(!b){ const blob=await musicBlobFor(A,false); b=await decodeBlob(blob); cacheBuf(k,b); } REC.mirrorBuf=b; }catch(e){ REC.mirrorBuf=null; } }
   })();
-  try{ mic=await openMic(); }catch(e){ mic=null; }
+  // One capture strategy per take (see rec.js), so the same sound is never recorded twice.
+  const hasMusic=songMode?(player.hasAudio&&!(A.kind==='line'&&voiceOf(A)==='dub')):!!bed.id;
+  let plan=recPlan(hasMusic);
+  try{ mic=await openMic(plan); }catch(e){ mic=null; }
+  if(mic){ REC.proc=micProcessing(mic); procWarn(plan); }
   if(state!=='counting'){ closeMic(); return; }
   if(!mic) toast('Microphone unavailable, so this take will have no voice');
   else { mic.getAudioTracks().forEach(t=>t.addEventListener('ended',()=>{ if(state==='recording'){ pauseToggle(); toast('The microphone was interrupted, so recording paused'); } })); startMeter(); }
@@ -3341,16 +3395,18 @@ async function startRecording(){
   if(state!=='counting'){ closeMic(); return; }
   mime=m; chunks=[]; stemChunks=[]; musicOffset=0; musicMarked=false;
   // Mix voice and in-app music inside the app (see rec.js); keep a voice-only stem for the editor.
-  const hasMusic=songMode?(player.hasAudio&&!(A.kind==='line'&&voiceOf(A)==='dub')):!!bed.id;
-  let g=null; try{ if(mic||hasMusic) g=recStart(mic); }catch(e){ g=null; }
-  recDelay=g?g.delay.delayTime.value:0; recMixed=!!g;
+  // Without a mic, in-app music can only reach the take digitally.
+  if(!mic&&hasMusic&&!plan.digital) plan={...plan,mode:'mix',digital:true};
+  let g=null; try{ if(mic||hasMusic) g=await recStart(mic,plan); }catch(e){ g=null; }
+  if(state!=='counting'){ closeMic(); return; }
+  recPlanNow=plan; recDelay=g&&g.delay?g.delay.delayTime.value:0; recMixed=!!(g&&plan.digital); recLive=!!g;
   const tracks=[...stream.getVideoTracks(),...(g?g.dest.stream.getAudioTracks():mic?mic.getAudioTracks():[])];
   stemRec=null; stemMime='';
   if(g&&mic){ stemMime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(x=>MediaRecorder.isTypeSupported(x))||'';
     try{ stemRec=new MediaRecorder(g.stemDest.stream,stemMime?{mimeType:stemMime,audioBitsPerSecond:160000}:undefined); stemRec.ondataavailable=e=>{ if(e.data&&e.data.size) stemChunks.push(e.data); }; }catch(e){ stemRec=null; } }
   try{ recorder=new MediaRecorder(new MediaStream(tracks),m?{mimeType:m,videoBitsPerSecond:6000000,audioBitsPerSecond:192000}:undefined); }
-  catch(e){ try{ recorder=new MediaRecorder(new MediaStream(tracks)); }catch(e2){ state='idle'; closeMic(); syncUI(); toast('Couldn’t start recording on this device.'); return; } }
-  liveBegin({itemId:A.id,title:titleOf(A),kind:A.kind,mime:(m||'video/webm').split(';')[0],musicVol:songMode?1:S.settings.bedVol/100,mixed:!!g});
+  catch(e){ try{ recorder=new MediaRecorder(new MediaStream(tracks)); }catch(e2){ state='idle'; recLive=false; closeMic(); syncUI(); toast('Couldn’t start recording on this device.'); return; } }
+  liveBegin({itemId:A.id,title:titleOf(A),kind:A.kind,mime:(m||'video/webm').split(';')[0],musicVol:songMode?1:S.settings.bedVol/100,mixed:recMixed,mode:plan.mode});
   recorder.ondataavailable=e=>{ if(e.data&&e.data.size){ chunks.push(e.data); liveChunk(e.data); } };
   recorder.onstop=onRecorded;
   recorder.onerror=()=>{ toast('Recording hit a problem. Saving what was captured.'); try{ if(recorder.state!=='inactive') recorder.stop(); }catch(e){} };
@@ -3359,7 +3415,7 @@ async function startRecording(){
   recorder.onstart=()=>{ if(songMode) markMusicStart(); };
   recorder.start(1000); if(stemRec) try{ stemRec.start(1000); }catch(e){ stemRec=null; }
   if(songMode){ player.play(); if(REC.attachPlayer) REC.attachPlayer(); }
-  else if(!songMode) musicOffset=recDelay;
+  else if(!songMode) musicOffset=recMixed?recDelay:0;
   elapsed=0; tStart=performance.now(); state='recording'; lockScreen(); bedSync(); syncUI();
   clockT=setInterval(drawClock,250);
   if(songMode) requestAnimationFrame(markMusicStart);
@@ -3369,11 +3425,11 @@ async function startRecording(){
 function markMusicStart(){
   if(musicMarked||!player.on) return;
   const c=ac(); const startPerf=performance.now()+(player.t0-c.currentTime)*1000;
-  musicOffset=Math.max(0,Math.min(2,(startPerf-recStartPerf)/1000+(REC.on?recDelay:outLat()+extraLatency())-player.off));
+  musicOffset=Math.max(0,Math.min(2,(startPerf-recStartPerf)/1000+(recMixed?recDelay:outLat()+extraLatency())-player.off));
   musicMarked=true;
   store.set('lectern.live',{...(store.get('lectern.live',{})||{}),musicOffset});
 }
-function closeMic(){ stopMeter(); if(state==='counting'||!recMixed) recStop(); if(mic){ mic.getTracks().forEach(t=>t.stop()); mic=null; } releaseMicRoute(); }
+function closeMic(){ stopMeter(); if(!recLive) recStop(); if(mic){ mic.getTracks().forEach(t=>t.stop()); mic=null; } releaseMicRoute(); }
 function startMeter(){
   stopMeter(); try{ meter=levelMeter(mic); }catch(e){ meter=null; return; }
   const bar=$('#lvl'), fill=$('#lvlFill'); bar.hidden=false; let warned=0;
@@ -3415,7 +3471,7 @@ async function onRecorded(){
   // the voice stem recorder stops on its own event; give it a moment to flush
   if(stemRec){ if(stemRec.state!=='inactive') await new Promise(r=>{ stemRec.onstop=r; try{ stemRec.stop(); }catch(e){ r(); } setTimeout(r,1500); }); else await new Promise(r=>setTimeout(r,120)); }
   const stem=stemChunks.length?new Blob(stemChunks,{type:(stemRec&&stemRec.mimeType||stemMime||'audio/webm').split(';')[0]}):null;
-  const mixed=recMixed; recMixed=false; recStop(); stemRec=null;
+  const mixed=recMixed, plan=recPlanNow||{mode:'mic'}; recMixed=false; recLive=false; recStop(); stemRec=null;
   const captions=songMode?K.lines.map((l,i)=>({t:K.t[i]-offsetOf(),e:lineEnd(i)-offsetOf(),text:l,w:K.wt[i]?K.wt[i].map(x=>({s:x.s-offsetOf(),e:x.e-offsetOf()})):null})):[];
   let music=null, mvol=0.8;
   try{
@@ -3423,7 +3479,8 @@ async function onRecorded(){
     else if(bed.id){ music=await instBlob(CAT.get(bed.id)); mvol=S.settings.bedVol/100; }
   }catch(e){}
   S.stats.days=[...new Set([...S.stats.days,today()])].slice(-120); SAVE.stats();
-  const meta={title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mixed?recMusicLevel()*(songMode?1:mvol):mvol,musicOffset:mixed||songMode?musicOffset:0,mixed,stem};
+  const meta={title:titleOf(A),itemId:A.id,kind:A.kind,dur:elapsed/1000,captions,music,musicVol:mixed?recMusicLevel()*(songMode?1:mvol):mvol,musicOffset:mixed||songMode?musicOffset:0,mixed,stem,
+    mode:plan.mode,nc:recNC(),aec:!!plan.aec,proc:REC.proc||null,route:ROUTE.output,ext:plan.mode==='mic'&&!!S.settings.extMusic};
   // Save the take as a draft before anything else, then drop the crash-recovery chunks.
   const d=await createDraft(blob,meta,music); await liveEnd();
   openStudio(blob,meta,{draftId:d.id});
@@ -3452,9 +3509,13 @@ function syncTune(){
   if(A){ const off=offsetOf(); $('#offs').value=off; $('#offsO').textContent=(off>0?'+':'')+off.toFixed(2)+'s';
     const v=voiceOf(A); $$('#voiceSeg button').forEach(b=>{ b.setAttribute('aria-pressed',String(b.dataset.v===v)); b.disabled=(b.dataset.v==='original'||b.dataset.v==='dub')&&!hasClip(A); }); }
   $('#guideTg').setAttribute('aria-checked',String(!!st.guide));
-  const b=st.bed&&CAT.get(st.bed); $('#bedName').textContent=b?b.title:'None'; $('#bedVolRow').hidden=!b;
+  const b=st.bed&&CAT.get(st.bed); $('#bedName').textContent=b?b.title:st.extMusic?'Another app':'None'; $('#bedVolRow').hidden=!b;
   $('#bedVol').value=st.bedVol; $('#bedVolO').textContent=st.bedVol+'%';
-  const rm=Math.round(recMusicLevel()*100); $('#recMus').value=rm; $('#recMusO').textContent=rm+'%'; $('#recMusRow').hidden=!(songMode||st.bed);
+  const rm=Math.round(recMusicLevel()*100); $('#recMus').value=rm; $('#recMusO').textContent=rm+'%';
+  // the music level only applies when music is mixed digitally (headphones, or the speaker clean-mix option)
+  $('#recMusRow').hidden=!((songMode||st.bed)&&recPlan(true).digital);
+  const mg=recMicDb(); $('#micGain').value=mg; $('#micGainO').textContent=(mg>0?'+':'')+mg+' dB';
+  ncUI();
   $('#ttsRate').value=st.ttsRate||1; $('#ttsRateO').textContent=(st.ttsRate||1).toFixed(2)+'×';
   $$('#cdSeg button').forEach(x=>x.setAttribute('aria-pressed',String(+x.dataset.v===st.countdown)));
   $('#mText').setAttribute('aria-pressed',String(st.mirrorText)); $('#mCam').setAttribute('aria-pressed',String(st.mirrorCam)); $('#bdrop').setAttribute('aria-pressed',String(st.backdrop));
@@ -3464,12 +3525,14 @@ bindRange('#speed','speed'); bindRange('#size','size'); bindRange('#opac','opac'
 $('#focusSl').addEventListener('input',e=>{ setFocus(+e.target.value/100); SAVE.settings(); });
 $('#offs').addEventListener('input',e=>{ const v=+e.target.value; if(A.cat){ S.settings.offsets[A.id]=v; SAVE.settings(); } else { A.offset=v; SAVE.items(); } syncTune(); K.idx=-2; updateKara(); });
 $('#bedVol').addEventListener('input',e=>{ S.settings.bedVol=+e.target.value; bed.audio.volume=S.settings.bedVol/100; SAVE.settings(); syncTune(); });
-$('#recMus').addEventListener('input',e=>{ S.settings.recMusic=+e.target.value/100; SAVE.settings(); syncTune(); if(REC.g) REC.g.level.gain.setTargetAtTime(S.settings.recMusic,ac().currentTime,0.05); });
+$('#recMus').addEventListener('input',e=>{ S.settings.recMusic=+e.target.value/100; SAVE.settings(); syncTune(); if(REC.g&&REC.g.level) REC.g.level.gain.setTargetAtTime(S.settings.recMusic,ac().currentTime,0.05); });
+$('#micGain').addEventListener('input',e=>{ S.settings.micGain=+e.target.value; SAVE.settings(); syncTune(); if(REC.g&&REC.g.micGain) REC.g.micGain.gain.setTargetAtTime(db2g(S.settings.micGain),ac().currentTime,0.05); });
+$('#ncBtn').onclick=async()=>{ recSetNC(!recNC()); ncUI(); if(recNC()&&!(await ncLoad())){ toast('Noise cancellation isn’t supported on this device'); return; } toast(recNC()?'Noise cancellation on · reduces steady background noise':'Noise cancellation off · natural mic sound'); };
 $('#ttsRate').addEventListener('input',e=>{ S.settings.ttsRate=+e.target.value; SAVE.settings(); syncTune(); });
 $('#guideTg').onclick=async()=>{ if(state!=='idle'){ toast('Stop recording to change this'); return; } S.settings.guide=!S.settings.guide; SAVE.settings(); syncTune(); const t=player.time(), was=player.playing(); await loadTimedAudio(A); player.seek(t); if(was) player.play(); toast(S.settings.guide?'Guide vocal on':'Guide vocal off'); };
 $('#voiceSeg').addEventListener('click',async e=>{ const b=e.target.closest('button'); if(!b||b.disabled||state!=='idle') return; setVoice(A,b.dataset.v); narratorStop(); const it=A; closeStage(true); await openStage(it); setTune(true);
   toast({me:'Your voice: the prompter follows your pace',original:'Original audio plays and is mixed into your take',dub:'Dub mode: the clip runs silently so you can voice it',narrator:'Narrator reads the lines aloud for practice'}[b.dataset.v]); });
-$('#bedBtn').onclick=()=>actionSheet('Music bed',[{icon:'x',label:'None',sub:S.settings.bed?'':'Selected',run:()=>{ S.settings.bed=null; SAVE.settings(); loadBed(null); syncTune(); }},...allInst().map(x=>({icon:'audio-waveform',label:x.title+(S.settings.bed===x.id?' ✓':''),sub:x.mood+' · '+fmt(x.dur)+(x.embed||x.user?' · offline':''),run:async()=>{ S.settings.bed=x.id; SAVE.settings(); syncTune(); await loadBed(x.id); bedSync(); toast('“'+x.title+'” will play while you read'); }}))],'Plays under your reading and is mixed into your take in the editor.');
+$('#bedBtn').onclick=()=>musicSheet();
 const handle=$('#handle'); let fd=null;
 handle.addEventListener('pointerdown',e=>{ e.stopPropagation(); fd={y0:e.clientY,f0:S.settings.focus}; handle.setPointerCapture(e.pointerId); });
 handle.addEventListener('pointermove',e=>{ if(!fd) return; setFocus(fd.f0+(e.clientY-fd.y0)/scroller.clientHeight); });
@@ -3527,7 +3590,7 @@ function closeStage(quiet){
   if(state==='recording'||state==='paused'||state==='counting') return;
   narratorStop();
   stage.hidden=true; document.body.style.overflow=''; rehearsing=false;
-  stopCamera(); cancelAnimationFrame(raf); unlockScreen(); player.pause(); player.setVolume(1); bed.audio.pause(); pip.pause();
+  stopCamera(); cancelAnimationFrame(raf); unlockScreen(); player.pause(); player.setVolume(1); bed.audio.pause(); pip.pause(); musicPreviewStop();
   S.stats.seconds+=Math.round((performance.now()-stageStart)/1000); S.stats.days=[...new Set([...S.stats.days,today()])].slice(-120); SAVE.stats();
   if(!quiet) refresh();
 }
@@ -3750,32 +3813,121 @@ function stageRouteUI(){
   b.setAttribute('aria-label','Audio: '+ROUTE_LABEL[ROUTE.output]);
   b.classList.toggle('bt',ROUTE.output==='bluetooth');
 }
+/* What will be in this take, in plain words. */
+function stageHasMusic(){ return songMode?(player.hasAudio&&!(A.kind==='line'&&voiceOf(A)==='dub')):!!(S.settings.bed); }
+function planText(p){
+  return {mic:S.settings.extMusic?'Your mic records your voice and the music from the other app together, as one natural sound. Nothing is added or removed.':'Your mic records your voice naturally.',
+    acoustic:'The music plays on the speaker and your mic records it with your voice, like a real room. It is recorded once, so it can’t double or echo.',
+    mix:'You hear the music in your headphones. Lectern adds the clean track to the video and records only your voice from the mic.',
+    mixaec:'Lectern adds the clean track to the video and uses echo cancellation to keep the speaker out of your mic. Some phones make the voice sound thinner this way.'}[p.mode];
+}
+function procWarn(plan){
+  const p=REC.proc; if(!p) return;
+  const bits=[]; if(p.ns) bits.push('noise suppression'); if(p.agc) bits.push('automatic volume'); if(p.aec&&!plan.aec) bits.push('echo cancellation');
+  if(bits.length&&!REC.procWarned){ REC.procWarned=true; toast('This phone kept its own '+bits.join(' and ')+' on. Lectern can’t switch that off.'); }
+}
+function ncUI(){ const b=$('#ncBtn'); if(!b) return; const on=recNC(); b.setAttribute('aria-pressed',String(on)); b.classList.toggle('on',on); b.setAttribute('aria-label','Noise cancellation '+(on?'on':'off')); const t=b.querySelector('b'); if(t) t.textContent=on?'On':'Off'; }
 function audioSheet(forRecord){
   return new Promise(res=>{
-    let started=false;
+    let started=false; let proc=null;
     const r=ROUTE.output, hp=r!=='speaker', lat=Math.round(extraLatency()*1000+outLat()*1000);
+    const music=stageHasMusic();
     const hasHeadsetMic=ROUTE.inputs.some(i=>i.type==='bluetooth'||i.type==='headset')||r==='bluetooth'||r==='wired'||r==='usb';
-    const opt=(v,t,s)=>`<button class="aopt" data-mic="${v}" aria-pressed="${micPref()===v}"><span class="rd"></span><span><b>${t}</b><small>${s}</small></span></button>`;
-    sheet(`<div class="asheet">
-      <div class="aroute"><span class="ai">${ic(ROUTE_ICON[r]||'volume-2')}</span><div><small>Playing through</small><b>${esc(hp&&ROUTE.name?ROUTE.name:ROUTE_LABEL[r])}</b></div></div>
-      ${hp?`<div class="h3" style="margin:18px 0 8px">Record your voice with</div>
-        ${opt('phone','Phone microphone','Best quality. The music stays in your '+(r==='bluetooth'?'Bluetooth ':'')+'headphones and out of your take.')}
-        ${hasHeadsetMic?opt('headset','Headset microphone',r==='bluetooth'?'Uses the mic on your headphones. Bluetooth switches to call-quality sound for this.':'Uses the mic on your headphones.'):''}`
-      :`<div class="atip">${ic('headphones','sm')}<span><b>Headphones give the cleanest take.</b> On the speaker the music leaks into your mic, so Lectern turns on echo cancellation.</span></div>`}
+    const opt=(attr,v,cur,t,s)=>`<button class="aopt" data-${attr}="${v}" aria-pressed="${cur===v}"><span class="rd"></span><span><b>${t}</b><small>${s}</small></span></button>`;
+    const musicName=songMode?esc(titleOf(A)):S.settings.bed&&CAT.get(S.settings.bed)?esc(CAT.get(S.settings.bed).title):S.settings.extMusic?'Another app':'None';
+    const body=()=>{ const plan=recPlan(music); const aecS=recAECSetting(); return `<div class="asheet">
+      <div class="aroute"><span class="ai">${ic(ROUTE_ICON[r]||'volume-2')}</span><div><small>Playing through</small><b>${esc(hp&&ROUTE.name?ROUTE.name:ROUTE_LABEL[r])}</b></div>
+        <div class="amus"><small>Music</small><b>${musicName}</b>${songMode?'':`<button class="tlink" id="aMusic">Change</button>`}</div></div>
+      <div class="amode"><b>${ic('audio-waveform','xs')}${RECMODE_LABEL[plan.mode]}</b><span>${planText(plan)}</span></div>
+      ${hp?`<div class="h3" style="margin:16px 0 8px">Record your voice with</div>
+        ${opt('mic','phone',micPref(),'Phone microphone','Best quality. The music stays in your '+(r==='bluetooth'?'Bluetooth ':'')+'headphones and out of the mic.')}
+        ${hasHeadsetMic?opt('mic','headset',micPref(),'Headset microphone',r==='bluetooth'?'Uses the mic on your headphones. Bluetooth switches to call-quality sound for this.':'Uses the mic on your headphones.'):''}`
+      :music?`<div class="h3" style="margin:16px 0 8px">Music on the speaker</div>
+        ${opt('spk','acoustic',speakerMusicPref(),'Record it through the mic (recommended)','Sounds like the room you’re in. Turn the music down a little if your voice gets lost.')}
+        ${opt('spk','mixaec',speakerMusicPref(),'Clean digital mix','Adds the original track and filters the speaker out of your mic. Headphones do this better.')}`:''}
+      <div class="setrow"><div class="lbl">${ic('audio-lines','sm')}Noise cancellation<small>Reduces steady background noise (fans, hum, wind, distant chatter). Keeps your voice and the music. You can switch it while recording.</small></div><button class="toggle" role="switch" id="aNC" aria-checked="${recNC()}" aria-label="Noise cancellation"></button></div>
+      <div class="setrow col"><div class="lbl">${ic('ear','sm')}Echo cancellation<small>Removes the phone’s own speaker from the mic. It is built for calls and can thin out music, so Auto uses it only for the clean digital mix on the speaker. Set before recording.</small></div>
+        <div class="chips" id="aAEC">${['auto','on','off'].map(v=>`<button class="chip" data-aec="${v}" aria-pressed="${aecS===v}">${v[0].toUpperCase()+v.slice(1)}</button>`).join('')}</div></div>
+      <label class="fld">Mic level <input type="range" id="aMic" min="-12" max="12" step="1" value="${recMicDb()}" aria-label="Microphone level"><output>${(recMicDb()>0?'+':'')+recMicDb()} dB</output></label>
+      ${music&&plan.digital?`<label class="fld">Music in take <input type="range" id="aMus" min="0" max="100" step="5" value="${Math.round(recMusicLevel()*100)}" aria-label="Music level in the recording"><output>${Math.round(recMusicLevel()*100)}%</output></label>`:''}
+      <div class="aproc" id="aProc">${procNote(plan,proc)}</div>
       <div class="alat"><span>${ic('timer','sm')}Delay compensation <b>${lat} ms</b></span><button class="btn sm" id="aLat">Adjust</button></div>
       ${forRecord?`<button class="btn white block" id="aGo">${ic('circle','fill sm')}Start recording</button>`:`<button class="btn white block" id="aGo">Done</button>`}
-    </div>`,{onMount(el,close){
-      el.addEventListener('click',e=>{ const o=e.target.closest('[data-mic]'); if(!o) return; S.settings.micPref=o.dataset.mic; SAVE.settings(); $$('[data-mic]',el).forEach(x=>x.setAttribute('aria-pressed',String(x===o))); });
-      el.querySelector('#aLat').onclick=()=>{ close(); openLatencyCheck(); };
-      el.querySelector('#aGo').onclick=()=>{ started=true; S.settings.routeSeen={...(S.settings.routeSeen||{}),[r]:true}; SAVE.settings(); close(); };
-    },onClose(){ setTimeout(()=>res(started),0); }});
+    </div>`; };
+    sheet(`<div id="aWrap">${body()}</div>`,{onMount(el,close){
+      const wrap=el.querySelector('#aWrap');
+      const redraw=()=>{ const y=el.scrollTop; wrap.innerHTML=body(); bind(); el.scrollTop=y; syncTune(); };
+      const bind=()=>{
+        const q=x=>wrap.querySelector(x);
+        q('#aNC').onclick=()=>{ recSetNC(!recNC()); redraw(); };
+        q('#aMic').oninput=e=>{ S.settings.micGain=+e.target.value; SAVE.settings(); e.target.nextElementSibling.textContent=(S.settings.micGain>0?'+':'')+S.settings.micGain+' dB'; };
+        if(q('#aMus')) q('#aMus').oninput=e=>{ S.settings.recMusic=+e.target.value/100; SAVE.settings(); e.target.nextElementSibling.textContent=e.target.value+'%'; };
+        if(q('#aMusic')) q('#aMusic').onclick=()=>{ started=null; close(); musicSheet(()=>audioSheet(forRecord).then(res)); };
+        q('#aLat').onclick=()=>{ close(); openLatencyCheck(); };
+        q('#aGo').onclick=()=>{ started=true; S.settings.routeSeen={...(S.settings.routeSeen||{}),[r+(music?':m':'')]:true}; SAVE.settings(); close(); };
+      };
+      wrap.addEventListener('click',e=>{ const o=e.target.closest('[data-mic],[data-spk],[data-aec]'); if(!o) return;
+        if(o.dataset.mic) S.settings.micPref=o.dataset.mic; if(o.dataset.spk) S.settings.speakerMusic=o.dataset.spk; if(o.dataset.aec) S.settings.echoCancel=o.dataset.aec;
+        SAVE.settings(); redraw(); });
+      bind();
+      deviceProcessing().then(p=>{ proc=p; const n=wrap.querySelector('#aProc'); if(n) n.innerHTML=procNote(recPlan(music),p); });
+    },onClose(){ if(started!==null) setTimeout(()=>res(started),0); }});
   });
+}
+/* What the phone itself does to the mic, as far as the app can tell. */
+async function deviceProcessing(){ if(!nativeRoute()) return null; try{ return await nat('AudioRoute','getProcessing'); }catch(e){ return null; } }
+function procNote(plan,dev){
+  const p=REC.proc, out=[];
+  if(p&&(p.ns||p.agc)) out.push('Last take, this phone kept its own '+[p.ns&&'noise suppression',p.agc&&'automatic volume'].filter(Boolean).join(' and ')+' on even though Lectern asked for it off. That is set by the phone and the app can’t override it.');
+  if(plan.aec) out.push('Echo cancellation is on for this take. Noise cancellation is a separate setting.');
+  if(dev&&!dev.unprocessed) out.push('This phone doesn’t offer an unprocessed mic input, so some light processing by the phone may remain.');
+  if(!out.length) out.push('Lectern asks the phone for its plain microphone signal: no call-style noise suppression or automatic volume.');
+  return ic('info','xs')+'<span>'+out.join(' ')+'</span>';
 }
 async function audioCheck(){
   await refreshRoute(); stageRouteUI();
   const seen=S.settings.routeSeen||{};
-  if(seen[ROUTE.output]) return true;
+  if(seen[ROUTE.output+(stageHasMusic()?':m':'')]) return true;
   return audioSheet(true);
+}
+
+/* ================= Music for the take ================= */
+const MPREV={audio:new Audio(),id:null,url:''};
+MPREV.audio.addEventListener('ended',()=>{ MPREV.id=null; prevUI(); });
+AUDIO.register('mprev',{label:()=>{ const x=MPREV.id&&CAT.get(MPREV.id); return x?x.title:'Preview'; },sub:'Preview',icon:'list-music',playing:()=>!MPREV.audio.paused,stop:()=>musicPreviewStop(),here:()=>true});
+function musicPreviewStop(){ MPREV.audio.pause(); MPREV.id=null; if(MPREV.url){ URL.revokeObjectURL(MPREV.url); MPREV.url=''; } MPREV.audio.removeAttribute('src'); prevUI(); }
+let prevUI=()=>{};
+async function musicPreview(id){
+  if(MPREV.id===id){ musicPreviewStop(); return; }
+  musicPreviewStop(); bed.audio.pause(); AUDIO.claim('mprev');
+  MPREV.id=id; prevUI();
+  try{ const b=await instBlob(CAT.get(id)); if(MPREV.id!==id) return; MPREV.url=URL.createObjectURL(b); MPREV.audio.src=MPREV.url; MPREV.audio.volume=S.settings.bedVol/100; await MPREV.audio.play(); }
+  catch(e){ if(MPREV.id===id){ MPREV.id=null; prevUI(); toast('Couldn’t play that preview. Are you online?'); } }
+  prevUI();
+}
+function musicSheet(after){
+  const row=(id,icon,title,sub,sel,prev)=>`<div class="mrow" data-sel="${id}" role="radio" tabindex="0" aria-checked="${sel}"><span class="rd"></span><span class="mi">${ic(icon,'sm')}</span><span class="mt"><b>${title}</b><small>${sub}</small></span>${prev?`<button class="circ sm mprev" data-prev="${id}" aria-label="Preview ${esc(title)}">${ic('play','fill xs')}</button>`:''}</div>`;
+  const cur=()=>S.settings.bed||(S.settings.extMusic?'@ext':'@none');
+  const list=()=>row('@none','x','No music','Voice only',cur()==='@none')+
+    row('@ext','smartphone','Music from another app','Play it on the speaker from any music app. Lectern records it through the mic, untouched.',cur()==='@ext')+
+    allInst().map(x=>row(x.id,'audio-waveform',esc(x.title),esc(x.mood)+' · '+fmt(x.dur)+(x.embed||x.user?' · offline':''),cur()===x.id,true)).join('');
+  sheet(`<div class="msheet"><h3>Music for your take</h3>
+    <div class="mlist" role="radiogroup" aria-label="Music">${list()}</div>
+    <label class="fld">Music volume <input type="range" id="msVol" min="0" max="100" step="5" value="${S.settings.bedVol}" aria-label="Music volume while you read"><output>${S.settings.bedVol}%</output></label>
+    <label class="fld">Mic level <input type="range" id="msMic" min="-12" max="12" step="1" value="${recMicDb()}" aria-label="Microphone level"><output>${(recMicDb()>0?'+':'')+recMicDb()} dB</output></label>
+    <button class="btn white block" id="msDone">Done</button></div>`,{onMount(el,close){
+      const L=el.querySelector('.mlist');
+      prevUI=()=>{ $$('[data-prev]',el).forEach(b=>{ const on=MPREV.id===b.dataset.prev; b.innerHTML=ic(on?'square':'play','fill xs'); b.classList.toggle('on',on); b.setAttribute('aria-label',(on?'Stop preview of ':'Preview ')+(CAT.get(b.dataset.prev)||{}).title); }); };
+      const choose=async id=>{ musicPreviewStop();
+        if(id==='@none'||id==='@ext'){ S.settings.bed=null; S.settings.extMusic=id==='@ext'; SAVE.settings(); await loadBed(null); }
+        else { S.settings.bed=id; S.settings.extMusic=false; SAVE.settings(); await loadBed(id); }
+        $$('[data-sel]',el).forEach(r=>r.setAttribute('aria-checked',String(r.dataset.sel===cur()))); syncTune(); bedSync(); };
+      L.addEventListener('click',e=>{ const p=e.target.closest('[data-prev]'); if(p){ e.stopPropagation(); musicPreview(p.dataset.prev); return; } const r=e.target.closest('[data-sel]'); if(r) choose(r.dataset.sel); });
+      L.addEventListener('keydown',e=>{ if(e.key!=='Enter'&&e.key!==' ') return; const r=e.target.closest('[data-sel]'); if(r){ e.preventDefault(); choose(r.dataset.sel); } });
+      el.querySelector('#msVol').oninput=e=>{ S.settings.bedVol=+e.target.value; SAVE.settings(); bed.audio.volume=MPREV.audio.volume=S.settings.bedVol/100; e.target.nextElementSibling.textContent=e.target.value+'%'; syncTune(); };
+      el.querySelector('#msMic').oninput=e=>{ S.settings.micGain=+e.target.value; SAVE.settings(); e.target.nextElementSibling.textContent=(S.settings.micGain>0?'+':'')+S.settings.micGain+' dB'; syncTune(); };
+      el.querySelector('#msDone').onclick=close; prevUI();
+    },onClose(){ musicPreviewStop(); prevUI=()=>{}; if(after) setTimeout(after,0); }});
 }
 
 /* Sync check: clicks play on the audio clock while a dot flashes on screen. Slide until
@@ -3808,78 +3960,158 @@ function openLatencyCheck(){
 }
 
 /* =====================================================================
-   Recording mixer
-   The take's soundtrack is mixed inside the app, not re-recorded through
-   the air:
-     mic ─ high-pass ─ gentle compressor ─ light de-ess ─┬─ voice stem (for the editor)
-                                                         └─┐
-     app music (digital) ─ delay to match what the singer heard ─ duck ─ level ─┴─ mix ─ limiter ─ video
-   - Music from the app is mixed digitally, so it is clean and steady instead
-     of being picked up by the mic from the speaker.
-   - The music feed is delayed by the measured output + input delay so the
-     voice lands on the beat the singer actually heard (Bluetooth included).
-   - While the voice is present the music dips a little (about 3 dB), slowly,
-     so the voice stays clear without audible pumping.
-   - No browser noise suppression or auto-gain (they chop and pump music);
-     echo cancellation only on the speaker, where it stops the music leaking
-     back into the voice.
+   Recording audio
+   One shared architecture, with a capture strategy chosen per situation so
+   the same sound is never recorded twice:
+
+   mode 'mic'      Voice only, or music from another app on the speaker.
+                   One natural mic track. No call-style processing, so the
+                   room and any music stay intact.
+   mode 'acoustic' In-app music on the speaker, recorded through the mic like
+                   a real room. One track: the music is NOT also mixed in
+                   digitally (that was the source of the doubled, echoey sound).
+   mode 'mix'      In-app music with headphones / Bluetooth. Music is mixed
+                   digitally (delayed to match what the singer heard), voice
+                   from the mic. Nothing leaks, so nothing doubles.
+   mode 'mixaec'   Optional: in-app music on the speaker but mixed digitally,
+                   with echo cancellation keeping the music out of the mic.
+
+   Noise cancellation (the app's own, music-safe) and echo cancellation (the
+   device's, call-style) are separate controls. The browser's voice-call
+   noise suppression and auto-gain are never used.
    ===================================================================== */
-const REC={g:null,on:false};
-function recMusicLevel(){ return S.settings.recMusic??0.6; }
-function recBuild(micStream){
-  const c=ac(); const g={nodes:[]}; const N=n=>{ g.nodes.push(n); return n; };
-  g.dest=c.createMediaStreamDestination(); g.stemDest=c.createMediaStreamDestination(); g.dest.channelCount=2;
-  // voice chain
+const REC={g:null,on:false,plan:null,proc:null,ncReady:null};
+const recMusicLevel=()=>S.settings.recMusic??0.6;
+const recMicDb=()=>S.settings.micGain??0;
+const recNC=()=>!!S.settings.noiseCancel;
+const recAECSetting=()=>S.settings.echoCancel||'auto';
+const speakerMusicPref=()=>S.settings.speakerMusic||'acoustic';
+const RECMODE_LABEL={mic:'Natural mic',acoustic:'Music through the mic',mix:'Clean mix',mixaec:'Clean mix (echo cancellation)'};
+
+/* Decide how this take is captured. */
+function recPlan(internalMusic){
+  const hp=ROUTE.output!=='speaker';
+  const mode=!internalMusic?'mic':hp?'mix':(speakerMusicPref()==='mixaec'?'mixaec':'acoustic');
+  const a=recAECSetting(); const aec=a==='on'?true:a==='off'?false:mode==='mixaec';
+  return {mode,aec,nc:recNC(),digital:mode==='mix'||mode==='mixaec'};
+}
+
+/* ---------- Music-safe noise cancellation (AudioWorklet) ----------
+   Short-time spectral gating with a noise floor learned by minimum statistics over the
+   last ~8 s, so steady noise (fans, hum, hiss, distant chatter) is reduced but sustained
+   music and voice are not chased down. Attenuation is capped at 12 dB to stay natural.
+   Constant latency (1024 samples) whether on or off, so toggling never shifts timing. */
+const NC_SRC=`
+class NC extends AudioWorkletProcessor{
+  constructor(o){ super(); const N=1024,H=256,B=N/2+1, a0=(o&&o.processorOptions&&o.processorOptions.amount)||0; Object.assign(this,{N,H,B,fp:0,amt:a0,target:a0,frames:0});
+    this.win=new Float32Array(N); for(let i=0;i<N;i++) this.win[i]=Math.sqrt(0.5-0.5*Math.cos(2*Math.PI*i/N));
+    this.fifo=new Float32Array(H); this.ana=new Float32Array(N); this.ola=new Float32Array(N); this.re=new Float32Array(N); this.im=new Float32Array(N);
+    this.P=new Float32Array(B); this.cur=new Float32Array(B).fill(1e9); this.mins=[]; this.G=new Float32Array(B).fill(1); this.g=new Float32Array(B);
+    this.Q=16384; this.ring=new Float32Array(this.Q); this.w=N; this.r=0;
+    this.block=Math.round(sampleRate*0.5/H);
+    this.port.onmessage=e=>{ if(e.data&&e.data.amount!=null) this.target=e.data.amount; }; }
+  fft(re,im,inv){ const n=re.length; for(let i=1,j=0;i<n;i++){ let b=n>>1; for(;j&b;b>>=1) j^=b; j^=b; if(i<j){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; } }
+    for(let len=2;len<=n;len<<=1){ const a=(inv?2:-2)*Math.PI/len, wr=Math.cos(a), wi=Math.sin(a), h=len>>1;
+      for(let i=0;i<n;i+=len){ let cr=1,ci=0; for(let k=0;k<h;k++){ const p=i+k,q=p+h, tr=re[q]*cr-im[q]*ci, ti=re[q]*ci+im[q]*cr; re[q]=re[p]-tr; im[q]=im[p]-ti; re[p]+=tr; im[p]+=ti; const nr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=nr; } } }
+    if(inv) for(let i=0;i<n;i++){ re[i]/=n; im[i]/=n; } }
+  frame(){ const {N,H,B,re,im,win,P,G,g}=this;
+    this.ana.copyWithin(0,H); this.ana.set(this.fifo,N-H);
+    for(let i=0;i<N;i++){ re[i]=this.ana[i]*win[i]; im[i]=0; }
+    this.fft(re,im,false);
+    this.amt+=(this.target-this.amt)*0.08; const floor=Math.pow(10,-12*this.amt/20);
+    const first=this.frames<4; for(let k=0;k<B;k++){ const p=re[k]*re[k]+im[k]*im[k]; P[k]=first?p:P[k]*0.75+p*0.25; if(!first&&P[k]<this.cur[k]) this.cur[k]=P[k]; }
+    if(++this.frames%this.block===0){ this.mins.push(this.cur.slice()); if(this.mins.length>16) this.mins.shift(); this.cur.fill(1e9); }
+    for(let k=0;k<B;k++){ let n=this.cur[k]; for(const m of this.mins) if(m[k]<n) n=m[k]; n*=3;
+      const v=this.amt<0.001?1:Math.max(floor,1-n/(P[k]+1e-12)); g[k]=v; }
+    for(let k=0;k<B;k++){ const s=(g[Math.max(0,k-1)]+2*g[k]+g[Math.min(B-1,k+1)])/4; G[k]+=(s-G[k])*(s>G[k]?0.6:0.18); }
+    for(let k=0;k<B;k++){ re[k]*=G[k]; im[k]*=G[k]; if(k>0&&k<B-1){ re[N-k]=re[k]; im[N-k]=-im[k]; } }
+    this.fft(re,im,true);
+    for(let i=0;i<N;i++) this.ola[i]+=re[i]*win[i]*0.5;
+    for(let i=0;i<H;i++){ this.ring[this.w]=this.ola[i]; this.w=(this.w+1)%this.Q; }
+    this.ola.copyWithin(0,H); this.ola.fill(0,N-H); }
+  process(inputs,outputs){ const x=inputs[0]&&inputs[0][0], out=outputs[0]; if(!out||!out[0]) return true;
+    const y=out[0];
+    for(let i=0;i<y.length;i++){ this.fifo[this.fp++]=x?x[i]:0; if(this.fp===this.H){ this.frame(); this.fp=0; } y[i]=this.ring[this.r]; this.ring[this.r]=0; this.r=(this.r+1)%this.Q; }
+    for(let c=1;c<out.length;c++) out[c].set(y);
+    return true; } }
+registerProcessor('lectern-nc',NC);`;
+const NC_LATENCY=1024;
+function ncLoad(){ if(REC.ncReady) return REC.ncReady; const c=ac();
+  // blob: URL first; some origins (file://, strict CSP) only accept a data: URL
+  const add=u=>c.audioWorklet.addModule(u).then(()=>true);
+  REC.ncReady=!c.audioWorklet?Promise.resolve(false):add(URL.createObjectURL(new Blob([NC_SRC],{type:'text/javascript'})))
+    .catch(()=>add('data:text/javascript;charset=utf-8,'+encodeURIComponent(NC_SRC))).catch(()=>false);
+  return REC.ncReady; }
+function recSetNC(on){ S.settings.noiseCancel=!!on; SAVE.settings(); if(REC.g&&REC.g.nc) REC.g.nc.port.postMessage({amount:on?1:0}); }
+
+/* What the device actually applied to the mic (some phones keep their own processing on). */
+function micProcessing(stream){ try{ const s=stream.getAudioTracks()[0].getSettings(); return {aec:!!s.echoCancellation,ns:!!s.noiseSuppression,agc:!!s.autoGainControl,rate:s.sampleRate||0,ch:s.channelCount||0}; }catch(e){ return null; } }
+
+/* ---------- Build the graph for a take ---------- */
+async function recBuild(micStream,plan){
+  const c=ac(); const g={nodes:[],plan}; const N=n=>{ g.nodes.push(n); return n; };
+  const hasNC=await ncLoad();
+  g.dest=c.createMediaStreamDestination(); g.dest.channelCount=2; g.stemDest=c.createMediaStreamDestination();
   g.voiceOut=N(c.createGain());
+  let lat=0;
   if(micStream&&micStream.getAudioTracks().length){
-    g.mic=N(c.createMediaStreamSource(micStream));
-    const hp=N(c.createBiquadFilter()); hp.type='highpass'; hp.frequency.value=90; hp.Q.value=0.7;
-    const cp=N(c.createDynamicsCompressor()); cp.threshold.value=-26; cp.knee.value=12; cp.ratio.value=2.5; cp.attack.value=0.01; cp.release.value=0.22;
-    const ess=N(c.createBiquadFilter()); ess.type='peaking'; ess.frequency.value=6800; ess.Q.value=2; ess.gain.value=-2;
-    const pres=N(c.createBiquadFilter()); pres.type='peaking'; pres.frequency.value=3000; pres.Q.value=0.9; pres.gain.value=1.5;
-    const mk=N(c.createGain()); mk.gain.value=db2g(3);
-    const vlim=N(c.createDynamicsCompressor()); vlim.threshold.value=-4; vlim.knee.value=2; vlim.ratio.value=20; vlim.attack.value=0.001; vlim.release.value=0.08;
+    g.mic=N(c.createMediaStreamSource(micStream)); let head=g.mic;
+    if(hasNC){ g.nc=N(new AudioWorkletNode(c,'lectern-nc',{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[1],processorOptions:{amount:plan.nc?1:0}})); g.nc.port.postMessage({amount:plan.nc?1:0}); head.connect(g.nc); head=g.nc; lat+=NC_LATENCY/c.sampleRate; }
+    g.micGain=N(c.createGain()); g.micGain.gain.value=db2g(recMicDb()); head.connect(g.micGain); head=g.micGain;
+    if(plan.digital){
+      // voice in a mix: gentle shaping so it sits clearly over the music
+      const hp=N(c.createBiquadFilter()); hp.type='highpass'; hp.frequency.value=90; hp.Q.value=0.7;
+      const cp=N(c.createDynamicsCompressor()); cp.threshold.value=-26; cp.knee.value=12; cp.ratio.value=2.5; cp.attack.value=0.01; cp.release.value=0.22;
+      const ess=N(c.createBiquadFilter()); ess.type='peaking'; ess.frequency.value=6800; ess.Q.value=2; ess.gain.value=-2;
+      const pres=N(c.createBiquadFilter()); pres.type='peaking'; pres.frequency.value=3000; pres.Q.value=0.9; pres.gain.value=1.5;
+      const mk=N(c.createGain()); mk.gain.value=db2g(3);
+      head.connect(hp); hp.connect(cp); cp.connect(ess); ess.connect(pres); pres.connect(mk); head=mk;
+    } else {
+      // natural capture (room, voice and any music in it): only remove handling rumble
+      const hp=N(c.createBiquadFilter()); hp.type='highpass'; hp.frequency.value=40; hp.Q.value=0.7; head.connect(hp); head=hp;
+    }
+    const vlim=N(c.createDynamicsCompressor()); vlim.threshold.value=-3; vlim.knee.value=2; vlim.ratio.value=20; vlim.attack.value=0.001; vlim.release.value=0.08;
     const vsc=N(c.createWaveShaper()); vsc.curve=softClipCurve(); vsc.oversample='2x';
-    g.mic.connect(hp); hp.connect(cp); cp.connect(ess); ess.connect(pres); pres.connect(mk); mk.connect(vlim); vlim.connect(vsc); vsc.connect(g.voiceOut);
+    head.connect(vlim); vlim.connect(vsc); vsc.connect(g.voiceOut);
     g.vAn=N(c.createAnalyser()); g.vAn.fftSize=1024; g.voiceOut.connect(g.vAn);
   }
   g.voiceOut.connect(g.stemDest);
-  // music feed: delayed to line up with the voice, ducked, levelled
-  g.musicIn=N(c.createGain());
-  g.delay=N(c.createDelay(1.5)); g.delay.delayTime.value=Math.min(1.4,outLat()+extraLatency()+(micStream?micInLatency(micStream):0));
-  g.duck=N(c.createGain()); g.level=N(c.createGain()); g.level.gain.value=recMusicLevel();
-  g.musicIn.connect(g.delay); g.delay.connect(g.duck); g.duck.connect(g.level);
-  // mix with headroom and a transparent peak limiter
-  g.mix=N(c.createGain()); g.mix.gain.value=db2g(-1);
-  g.voiceOut.connect(g.mix); g.level.connect(g.mix);
-  g.lim=N(c.createDynamicsCompressor()); g.lim.threshold.value=-2; g.lim.knee.value=0; g.lim.ratio.value=20; g.lim.attack.value=0.002; g.lim.release.value=0.1;
-  g.lim.attack.value=0.001; const sc=N(c.createWaveShaper()); sc.curve=softClipCurve(); sc.oversample='2x';
+  g.mix=N(c.createGain()); g.mix.gain.value=plan.digital?db2g(-1):1;
+  g.voiceOut.connect(g.mix);
+  if(plan.digital){
+    g.musicIn=N(c.createGain());
+    g.delay=N(c.createDelay(1.5)); g.delay.delayTime.value=Math.min(1.4,outLat()+extraLatency()+(micStream?micInLatency(micStream):0)+lat);
+    g.duck=N(c.createGain()); g.level=N(c.createGain()); g.level.gain.value=recMusicLevel();
+    g.musicIn.connect(g.delay); g.delay.connect(g.duck); g.duck.connect(g.level); g.level.connect(g.mix);
+  }
+  g.lim=N(c.createDynamicsCompressor()); g.lim.threshold.value=-2; g.lim.knee.value=0; g.lim.ratio.value=20; g.lim.attack.value=0.001; g.lim.release.value=0.1;
+  const sc=N(c.createWaveShaper()); sc.curve=softClipCurve(); sc.oversample='2x';
   g.mix.connect(g.lim); g.lim.connect(sc); sc.connect(g.dest);
+  g.micLatency=lat;
   return g;
 }
-/* Transparent below about -3 dBFS, then rounds peaks off smoothly so nothing hard-clips at 0 dBFS. */
 function softClipCurve(){ const n=4096, cu=new Float32Array(n), knee=0.7, ceil=0.966; for(let i=0;i<n;i++){ const x=i*2/(n-1)-1, a=Math.abs(x); cu[i]=Math.sign(x)*(a<=knee?a:knee+(ceil-knee)*Math.tanh((a-knee)/(ceil-knee))); } return cu; }
 const micInLatency=s=>{ try{ const l=s.getAudioTracks()[0].getSettings().latency; return isFinite(l)&&l>0&&l<0.5?l:0.02; }catch(e){ return 0.02; } };
-/* Ducking: follow the voice level and lower the music by up to ~3 dB while singing. */
 function recDuckLoop(g){
-  if(!g.vAn) return;
+  if(!g.vAn||!g.duck) return;
   const buf=new Float32Array(g.vAn.fftSize); const c=ac();
   g.duckT=setInterval(()=>{ g.vAn.getFloatTimeDomainData(buf); let s=0; for(let i=0;i<buf.length;i++) s+=buf[i]*buf[i];
     const db=10*Math.log10(s/buf.length+1e-12); const target=db>-40?db2g(-3):1;
     g.duck.gain.setTargetAtTime(target,c.currentTime,target<g.duck.gain.value?0.08:0.45); },40);
 }
-/* Connect whichever music is playing in the app (karaoke track, clip audio or music bed). */
+/* In digital modes, feed whichever music is playing in the app into the mix. */
 let BED_SRC=null;
+function bedSource(){ if(!BED_SRC){ try{ BED_SRC=ac().createMediaElementSource(bed.audio); BED_SRC.connect(ac().destination); }catch(e){ BED_SRC=null; } } return BED_SRC; }
 function recAttachMusic(g){
-  if(REC.mirrorBuf){ REC.attachPlayer=()=>{}; }
-  else { if(player.gain) try{ player.gain.connect(g.musicIn); }catch(e){}
-    REC.attachPlayer=()=>{ if(player.gain&&REC.g) try{ player.gain.connect(REC.g.musicIn); }catch(e){} }; }
-  if(bed.id){ try{ if(!BED_SRC){ BED_SRC=ac().createMediaElementSource(bed.audio); BED_SRC.connect(ac().destination); } BED_SRC.connect(g.musicIn); }catch(e){} }
+  REC.attachPlayer=()=>{};
+  if(!g.plan.digital) return;
+  if(!REC.mirrorBuf){ if(player.gain) try{ player.gain.connect(g.musicIn); }catch(e){}
+    REC.attachPlayer=()=>{ if(player.gain&&REC.g&&REC.g.musicIn) try{ player.gain.connect(REC.g.musicIn); }catch(e){} }; }
+  if(bed.id){ const b=bedSource(); if(b) try{ b.connect(g.musicIn); }catch(e){} }
 }
-function recStart(micStream){ recStop(); const g=recBuild(micStream); recAttachMusic(g); recDuckLoop(g); REC.g=g; REC.on=true; return g; }
-/* Mirror source: plays the clean arrangement into the recording only, in step with the player. */
+async function recStart(micStream,plan){ recStop(); const g=await recBuild(micStream,plan); recAttachMusic(g); recDuckLoop(g); REC.g=g; REC.on=true; REC.plan=plan; return g; }
 function recMirrorSync(){
-  const g=REC.g; if(!g||!REC.mirrorBuf) return;
+  const g=REC.g; if(!g||!REC.mirrorBuf||!g.musicIn) return;
   if(REC.mirror){ try{ REC.mirror.stop(); }catch(e){} REC.mirror=null; }
   if(player.on){ const s=ac().createBufferSource(); s.buffer=REC.mirrorBuf; s.playbackRate.value=player.rate; s.connect(g.musicIn); s.start(player.t0,Math.min(player.off,REC.mirrorBuf.duration-0.01)); REC.mirror=s; }
 }
@@ -3887,8 +4119,32 @@ function recMirrorSync(){
   player.play=function(){ const r=_p(); if(REC.on) recMirrorSync(); return r; };
   player.pause=function(){ const r=_q(); if(REC.on) recMirrorSync(); return r; }; }
 function recStop(){ const g=REC.g; if(!g) return; clearInterval(g.duckT); if(REC.mirror){ try{ REC.mirror.stop(); }catch(e){} REC.mirror=null; }
-  try{ if(player.gain) player.gain.disconnect(g.musicIn); }catch(e){} try{ if(BED_SRC) BED_SRC.disconnect(g.musicIn); }catch(e){}
+  if(g.musicIn){ try{ if(player.gain) player.gain.disconnect(g.musicIn); }catch(e){} try{ if(BED_SRC) BED_SRC.disconnect(g.musicIn); }catch(e){} }
   g.nodes.forEach(n=>{ try{ n.disconnect(); }catch(e){} }); REC.g=null; REC.on=false; }
+
+/* ---------- Leak detection for the editor ----------
+   Finds whether (and where) the music is audible inside the voice recording by
+   cross-correlating the two at 8 kHz. If it is, the editor lines the clean music up with
+   the leaked copy to the sample, so the two add up instead of sounding like an echo. */
+function fftc(re,im,inv){ const n=re.length; for(let i=1,j=0;i<n;i++){ let b=n>>1; for(;j&b;b>>=1) j^=b; j^=b; if(i<j){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; } }
+  for(let len=2;len<=n;len<<=1){ const a=(inv?2:-2)*Math.PI/len, wr=Math.cos(a), wi=Math.sin(a), h=len>>1;
+    for(let i=0;i<n;i+=len){ let cr=1,ci=0; for(let k=0;k<h;k++){ const p=i+k,q=p+h, tr=re[q]*cr-im[q]*ci, ti=re[q]*ci+im[q]*cr; re[q]=re[p]-tr; im[q]=im[p]-ti; re[p]+=tr; im[p]+=ti; const nr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=nr; } } }
+  if(inv) for(let i=0;i<n;i++){ re[i]/=n; im[i]/=n; } }
+async function to8k(buf,secs){ const sr=8000, n=Math.min(Math.ceil(buf.duration*sr),secs*sr), C=window.OfflineAudioContext||window.webkitOfflineAudioContext; const oc=new C(1,n,sr); const s=oc.createBufferSource(); s.buffer=buf; s.connect(oc.destination); s.start(); return (await oc.startRendering()).getChannelData(0); }
+async function findLeak(voiceBuf,musicBuf,maxLag=1.2){
+  const sr=8000, v=await to8k(voiceBuf,24), m=await to8k(musicBuf,24);
+  const L=1<<Math.ceil(Math.log2(v.length+m.length)); const a=new Float32Array(L),ai=new Float32Array(L),b=new Float32Array(L),bi=new Float32Array(L);
+  // pre-whiten lightly (first difference) so tonal music gives a sharp peak
+  for(let i=1;i<v.length;i++) a[i]=v[i]-0.95*v[i-1]; for(let i=1;i<m.length;i++) b[i]=m[i]-0.95*m[i-1];
+  let ea=0,eb=0; for(let i=0;i<L;i++){ ea+=a[i]*a[i]; eb+=b[i]*b[i]; }
+  fftc(a,ai,false); fftc(b,bi,false);
+  for(let k=0;k<L;k++){ const r=a[k]*b[k]+ai[k]*bi[k], im=ai[k]*b[k]-a[k]*bi[k]; a[k]=r; ai[k]=im; }
+  fftc(a,ai,true);
+  let best=0,lag=0; const max=Math.min(L-1,Math.round(maxLag*sr)); for(let k=0;k<=max;k++){ if(a[k]>best){ best=a[k]; lag=k; } }
+  // how far the peak stands out from the rest of the correlation (robust to noise and loudness)
+  let mu=0,q=0; for(let k=0;k<=max;k++){ mu+=a[k]; q+=a[k]*a[k]; } mu/=max+1; const sd=Math.sqrt(Math.max(1e-30,q/(max+1)-mu*mu));
+  return {lag:lag/sr,score:best/Math.sqrt(ea*eb+1e-12),psr:(best-mu)/sd};
+}
 
 /* =====================================================================
    Drafts & recovery
@@ -3925,7 +4181,7 @@ async function createDraft(video,meta,music){
   if(music) await idb.putx('draftm:'+id,music,'rec');
   if(meta.stem) await idb.putx('draftstem:'+id,meta.stem,'rec');
   const d={id,title:meta.title||'Take',itemId:meta.itemId||null,kind:meta.kind||'script',created:Date.now(),updated:Date.now(),dur:meta.dur||0,thumb:'',hasMusic:!!music,
-    meta:{captions:meta.captions||[],musicVol:meta.musicVol??.8,musicOffset:meta.musicOffset||0,remix:!!meta.remix,loop:meta.kind!=='song',mixed:!!meta.mixed},hasStem:!!meta.stem,edit:null,open:true};
+    meta:{captions:meta.captions||[],musicVol:meta.musicVol??.8,musicOffset:meta.musicOffset||0,remix:!!meta.remix,loop:meta.kind!=='song',mixed:!!meta.mixed,mode:meta.mode||null,nc:!!meta.nc,aec:!!meta.aec,proc:meta.proc||null,route:meta.route||null,ext:!!meta.ext},hasStem:!!meta.stem,edit:null,open:true};
   S.drafts.unshift(d); S.drafts=S.drafts.slice(0,30); SAVE.drafts();
   return d;
 }
@@ -3948,7 +4204,7 @@ async function openDraft(id){
   const video=await idb.get('draft:'+id,'rec'); if(!video){ toast('The video for this draft is missing'); deleteDraft(id); return; }
   const music=d.hasMusic?await idb.get('draftm:'+id,'rec'):null;
   const stem=d.hasStem?await idb.get('draftstem:'+id,'rec'):null;
-  openStudio(video,{title:d.title,itemId:d.itemId,kind:d.kind,dur:d.dur,captions:d.meta.captions,music,musicVol:d.meta.musicVol,musicOffset:d.meta.musicOffset,remix:d.meta.remix,mixed:d.meta.mixed,stem},{draftId:id,edit:d.edit});
+  openStudio(video,{title:d.title,itemId:d.itemId,kind:d.kind,dur:d.dur,captions:d.meta.captions,music,musicVol:d.meta.musicVol,musicOffset:d.meta.musicOffset,remix:d.meta.remix,mixed:d.meta.mixed,stem,mode:d.meta.mode,nc:d.meta.nc,aec:d.meta.aec,proc:d.meta.proc,route:d.meta.route,ext:d.meta.ext},{draftId:id,edit:d.edit});
 }
 
 /* Launch-time recovery: an interrupted recording, then an editing session left open. */
@@ -3959,7 +4215,7 @@ async function recoverSessions(){
     if(ks.length){
       const parts=[]; for(const k of ks){ const b=await idb.get(k,'rec'); if(b) parts.push(b); }
       const blob=new Blob(parts,{type:live.mime||parts[0]&&parts[0].type||'video/webm'});
-      const d=await createDraft(blob,{title:live.title,itemId:live.itemId,kind:live.kind,dur:ks.length,captions:live.captions||[],musicVol:live.musicVol,musicOffset:live.musicOffset||0,mixed:!!live.mixed},null);
+      const d=await createDraft(blob,{title:live.title,itemId:live.itemId,kind:live.kind,dur:ks.length,captions:live.captions||[],musicVol:live.musicVol,musicOffset:live.musicOffset||0,mixed:!!live.mixed,mode:live.mode||null},null);
       d.open=false; d.recovered=true; SAVE.drafts();
       ks.forEach(k=>idb.del(k,'rec'));
       store.set('lectern.live',null);
@@ -4454,7 +4710,17 @@ function rebuildChains(){ [...ST.chains.keys()].forEach(dropChain); if(!ST.ctx) 
 function rebuildVoiceChain(){ rebuildChains(); if(ST.playing){ const t=stNow(); stopSources(); startSources(t); } }
 
 /* ---------- Transport ---------- */
-const musicAt=()=>(ST.meta&&ST.meta.musicOffset||0)+(ST.e.musicNudge||0);
+/* Where the clean music starts on the timeline: the measured position of the music the mic
+   heard (when there is any), otherwise the offset estimated while recording. */
+const musicAt=()=>(leakFound()?ST.leak.lag:(ST.meta&&ST.meta.musicOffset||0))+(ST.e.musicNudge||0);
+const LEAK_PSR=7; const leakFound=()=>!!(ST.leak&&ST.leak.psr>=LEAK_PSR);
+// The music is already in the take when it was recorded through the mic.
+const acousticTake=()=>!!ST.meta&&(ST.meta.mode==='acoustic'||(ST.meta.mode==='mic'&&!!ST.meta.ext));
+function computeHasMusic(){ const m=ST.meta; if(!m.music) return false; if(acousticTake()) return !!ST.e.addClean; return !(m.mixed&&!m.stem); }
+async function measureLeak(){
+  ST.leak=null; const t=ST.bufs.get('take'); if(!t||!t.raw||!ST.musicBuf) return;
+  try{ ST.leak=await findLeak(t.raw,ST.musicBuf,2.5); }catch(e){ ST.leak=null; }
+}
 function stNow(){ return ST.playing?Math.min(ST.dur,ST.pos+(ST.ctx.currentTime-ST.startCtx)):ST.pos; }
 function bufFor(c){ const b=ST.bufs.get(c.src); if(!b) return null; return (ST.e.clean&&b.clean)?b.clean:b.raw; }
 const clipLen=c=>{ const b=ST.bufs.get(c.src); return b&&b.raw?b.raw.duration:0; };
@@ -4476,7 +4742,7 @@ function startSources(at){
       if(cl.fadeOut>0){ const fo=Math.max(startTl,b-cl.fadeOut); g.setValueAtTime(valAt(fo),tl2c(fo)); g.linearRampToValueAtTime(0,tl2c(b)); }
     });
   });
-  if(ST.musicBuf){ const m=c.createBufferSource(); m.buffer=ST.musicBuf; m.loop=!!(ST.meta&&ST.meta.loop); m.connect(ST.musicGain);
+  if(ST.musicBuf&&ST.hasMusic){ const m=c.createBufferSource(); m.buffer=ST.musicBuf; m.loop=!!(ST.meta&&ST.meta.loop); m.connect(ST.musicGain);
     const mo=at-musicAt();
     if(mo>=0){ if(m.loop||mo<ST.musicBuf.duration){ m.start(when,m.loop?mo%ST.musicBuf.duration:mo); ST.srcs.push(m); } }
     else { m.start(when-mo,0); ST.srcs.push(m); } }
@@ -4502,7 +4768,8 @@ async function openStudio(blob,meta,opts={}){
   ST.blob=blob; ST.meta={...meta,loop:meta.loop??(meta.kind!=='song')}; ST.draftId=opts.draftId||null;
   const ed=opts.edit||{};
   // Takes recorded with the in-app mixer already have a processed voice; don't process twice.
-  const fresh=meta.mixed&&!opts.edit?{clean:false,enhance:false}:{};
+  // Natural recordings with music in them aren't processed by default either: the offline cleaner is for voice.
+  const fresh=(meta.mixed||(meta.mode&&meta.mode!=='mic')||meta.ext)&&!opts.edit?{clean:false,enhance:false}:{};
   ST.e={...EDIT_DEFAULT,mVol:meta.musicVol??.8,captions:!!(meta.captions&&meta.captions.length),...fresh,...ed};
   if(!Array.isArray(ST.e.tracks)||!ST.e.tracks.length) ST.e.tracks=[mainTrack(ed.voice)];
   ST.e.tracks=ST.e.tracks.map(toLayer);
@@ -4515,7 +4782,7 @@ async function openStudio(blob,meta,opts={}){
   if(ST.url) URL.revokeObjectURL(ST.url);
   ST.url=URL.createObjectURL(blob); stVideo.src=ST.url; stVideo.muted=true;
   // A mixed take without its voice stem (e.g. recovered after a crash) already contains the music.
-  ST.hasMusic=!!meta.music&&!(meta.mixed&&!meta.stem);
+  ST.leak=null; ST.hasMusic=computeHasMusic();
   $('#studio').hidden=false; document.body.style.overflow='hidden';
   $('#stSaved').classList.remove('on'); $('#stSaved').textContent='';
   ensureStudioGraph();
@@ -4534,6 +4801,8 @@ async function openStudio(blob,meta,opts={}){
     // recorded layers
     for(const t of ST.e.tracks) for(const cl of t.clips){ if(cl.src.startsWith('ovd:')&&!ST.bufs.has(cl.src)&&ST.draftId){ const b=await idb.get('draftv:'+ST.draftId+':'+cl.src.slice(4),'rec'); if(b){ try{ ST.bufs.set(cl.src,{raw:await decodeIn(ST.ctx,b)}); }catch(e){} } } }
     if(meta.music&&ST.hasMusic){ try{ ST.musicBuf=await decodeIn(ST.ctx,meta.music); }catch(e){ ST.musicBuf=null; ST.hasMusic=false; } }
+    // If the mic picked up the music, put the clean copy exactly on top of it (no echo).
+    if(ST.musicBuf&&ST.mode==='buffer') await measureLeak();
     rebuildChains(); applyMix();
     if(ST.e.clean||ST.e.enhance) runClean();
   }
@@ -4700,16 +4969,20 @@ function renderStPanel(){
       <div class="h3 pad" style="margin:14px 0 8px">Effects</div><div class="vgrid">${grid('fx')}</div>
       ${def.params.length?`<div class="card fxp" style="margin:14px 20px 0"><div class="fxp-h"><b>${esc(def.name)}${ST.e.tracks.length>1?' · '+esc(t.name):''}</b><button class="tlink" data-fxreset>Reset</button></div>
         ${def.params.map(q=>`<div class="mixrow"><span class="ml">${esc(q.label)}</span><input type="range" data-fxp="${q.key}" min="${q.min}" max="${q.max}" step="${q.step}" value="${v[q.key]}"><output>${fmtParam(v[q.key],q)}</output></div>`).join('')}</div>`:''}
-      <p class="hint pad" style="margin-top:12px">${ST.ctx?'Press play to hear changes as you make them. Effects apply to your voice'+(ST.hasMusic?', not the music.':'.'):'Voice effects need Web Audio, which this device doesn’t support.'}</p>`;
+      <p class="hint pad" style="margin-top:12px">${ST.ctx?'Press play to hear changes as you make them. '+(acousticTake()?'This take has the music in it, so effects and Clean up apply to both. Clean up is set to leave steady music alone, but keep it gentle.':'Effects apply to your voice'+(ST.hasMusic?', not the music.':'.')):'Voice effects need Web Audio, which this device doesn’t support.'}</p>`;
     renderCleanStatus(1);
   } else if(ST.tab==='tracks'){
     renderTracks(p);
   } else if(ST.tab==='mix'){
-    p.innerHTML=`<div class="mixrow">${ic('mic')}<input type="range" id="mxV" min="0" max="150" value="${Math.round(E.vVol*100)}" aria-label="Vocals volume"><output>${Math.round(E.vVol*100)}%</output></div>
+    const ac_=acousticTake(), lk=leakFound();
+    p.innerHTML=`<div class="mixrow">${ic('mic')}<input type="range" id="mxV" min="0" max="150" value="${Math.round(E.vVol*100)}" aria-label="${ac_?'Recording volume':'Vocals volume'}"><output>${Math.round(E.vVol*100)}%</output></div>
+      ${ac_&&ST.meta.music?`<div class="setrow" style="padding:10px 20px"><div class="lbl">Add the original track on top<small>Your mic already recorded the music. This adds the clean track too, lined up with what the mic heard, for a fuller sound.</small></div><button class="toggle" role="switch" data-x="addClean" aria-checked="${!!E.addClean}" aria-label="Add the original track on top"></button></div>`:''}
       <div class="mixrow" ${ST.hasMusic?'':'style="opacity:.4"'}>${ic('eighth-notes')}<input type="range" id="mxM" min="0" max="150" value="${Math.round(E.mVol*100)}" ${ST.hasMusic?'':'disabled'} aria-label="Music volume"><output>${ST.hasMusic?Math.round(E.mVol*100)+'%':'—'}</output></div>
       ${ST.hasMusic?`<div class="mixrow">${ic('timer')}<input type="range" id="mxN" min="-500" max="500" step="10" value="${Math.round((E.musicNudge||0)*1000)}" aria-label="Music timing"><output>${(E.musicNudge>0?'+':'')+Math.round((E.musicNudge||0)*1000)} ms</output></div>
-      <p class="hint pad">Music timing: if your voice sounds ahead of or behind the beat, nudge the music until they line up. Already compensated for ${Math.round((ST.meta.musicOffset||0)*1000)} ms of headphone delay.</p>`:''}
-      <p class="hint pad">${ST.hasMusic?'Music is mixed in clean from the original track, so it sounds better than what your mic picked up.':'No music in this take. Add a music bed in Tune before recording, or sing a karaoke song.'} Per-track volume and pan are in Tracks.</p>`;
+      <p class="hint pad">Music timing: if your voice sounds ahead of or behind the beat, nudge the music. ${lk?`Lined up to the music your mic heard (${Math.round(ST.leak.lag*1000)} ms).`:`Already compensated for ${Math.round((ST.meta.musicOffset||0)*1000)} ms of delay.`}</p>`:''}
+      <div class="h3" style="margin:14px 20px 8px">Audio sources</div>
+      <div class="srcs">${audioSourcesHTML()}</div>
+      <p class="hint pad">Per-track volume and pan are in Tracks.</p>`;
   } else {
     const tg=(k,label,sub,dis)=>`<div class="setrow" ${dis?'style="opacity:.4"':''}><div class="lbl">${label}${sub?`<small>${sub}</small>`:''}</div><button class="toggle" role="switch" data-x="${k}" aria-checked="${!!E[k]}" ${dis?'disabled':''} aria-label="${label}"></button></div>`;
     p.innerHTML=`<div class="card" style="margin:0 20px">${tg('captions','Lyric captions','Burns the karaoke line into the video',!(ST.meta.captions&&ST.meta.captions.length))}${tg('mirror','Mirror video','Flip left and right')}${tg('vignette','Vignette','Darkens the edges')}${tg('grain','Film grain')}${tg('watermark','Lectern watermark')}</div>`;
@@ -4758,7 +5031,7 @@ function renderSub(){
 const LANE_H=48, HANDLE=16;
 function laneGeom(){ const cv=$('#lanesCv'); return {cv,W:cv.clientWidth||cv.parentElement.clientWidth||360,D:Math.max(ST.dur,1)}; }
 function drawLanes(){
-  const cv=$('#lanesCv'); if(!cv) return; const tr=ST.e.tracks, W=cv.parentElement.clientWidth||360, H=tr.length*LANE_H+(ST.musicBuf?30:0)+8, dpr=devicePixelRatio||1;
+  const cv=$('#lanesCv'); if(!cv) return; const tr=ST.e.tracks, W=cv.parentElement.clientWidth||360, H=tr.length*LANE_H+(ST.musicBuf&&ST.hasMusic?30:0)+8, dpr=devicePixelRatio||1;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px'; const g=cv.getContext('2d'); g.scale(dpr,dpr); g.clearRect(0,0,W,H);
   const D=Math.max(ST.dur,1), x=tt=>tt/D*W; let y=4; const font='600 11px '+uiFont();
   const solo=tr.some(z=>z.solo);
@@ -4777,7 +5050,7 @@ function drawLanes(){
     });
     g.fillStyle=dim?'rgba(255,255,255,.5)':'#fff'; g.font=font; const lbl=t.name+(t.fx!=='none'?' · '+fxName(t.fx):'')+(t.mute?' · muted':'')+(t.solo?' · solo':''); g.fillText(lbl,6,y+14);
     y+=LANE_H; });
-  if(ST.musicBuf){ const a=musicAt(); g.fillStyle='rgba(251,146,60,.18)'; roundRectPath(g,x(Math.max(0,a)),y+3,W-x(Math.max(0,a)),22,6); g.fill(); g.fillStyle='#FDBA74'; g.font=font; g.fillText('Music',x(Math.max(0,a))+6,y+18); }
+  if(ST.musicBuf&&ST.hasMusic){ const a=musicAt(); g.fillStyle='rgba(251,146,60,.18)'; roundRectPath(g,x(Math.max(0,a)),y+3,W-x(Math.max(0,a)),22,6); g.fill(); g.fillStyle='#FDBA74'; g.font=font; g.fillText('Music',x(Math.max(0,a))+6,y+18); }
   moveLaneHead(stNow());
 }
 function moveLaneHead(t){ const h=$('#lanesHead'), cv=$('#lanesCv'); if(!h||!cv) return; h.style.transform='translateX('+(t/Math.max(ST.dur,1)*cv.clientWidth).toFixed(1)+'px)'; }
@@ -4879,6 +5152,28 @@ async function recordLayer(){
   renderStPanel();
 }
 
+/* What is in the file and what the editor plays, so it's clear nothing is heard twice. */
+function audioSourcesHTML(){
+  const m=ST.meta, E=ST.e, row=(icon,html)=>`<div class="src">${ic(icon,'sm')}<span>${html}</span></div>`;
+  const layers=E.tracks.filter(t=>t.clips.some(c=>c.src.startsWith('ovd:'))).length;
+  const inFile=m.mixed?'your voice and the music, mixed while recording':acousticTake()?'your microphone: your voice and the music as it sounded in the room':m.mode==='mic'?'your microphone':'the recorded sound';
+  const plays=ST.mode==='element'?'the video’s own sound (this device couldn’t decode it separately)':
+    ['your '+(acousticTake()?'recording':'voice track')+(m.stem?'':' (from the video)'),ST.hasMusic&&ST.musicBuf?'the clean music'+(leakFound()?', lined up with what the mic heard':''):'',layers?layers+' recorded layer'+(layers>1?'s':''):''].filter(Boolean).join(' + ');
+  const proc=[m.mode?RECMODE_LABEL[m.mode]:'',m.nc?'noise cancellation on':m.mode?'noise cancellation off':'',m.aec?'echo cancellation on':m.mode?'echo cancellation off':''].filter(Boolean).join(' · ');
+  const dev=m.proc&&(m.proc.ns||m.proc.agc)?' The phone kept its own '+[m.proc.ns&&'noise suppression',m.proc.agc&&'automatic volume'].filter(Boolean).join(' and ')+' on.':'';
+  return row('video','<b>In the video file:</b> one audio track with '+inFile+'.')+
+    row('play','<b>The editor plays:</b> '+plays+'. The video’s own sound stays muted here, so nothing plays twice. Your export uses the same mix.')+
+    (m.mixed&&ST.hasMusic&&leakFound()?row('info','<b>Speaker music in the voice track:</b> echo cancellation didn’t fully remove it while recording, so the raw video has the music twice. The editor lines the clean track up with it, and saving rebuilds the video from this single mix.'):'')+
+    (proc||dev?row('settings-2','<b>Recorded with:</b> '+(proc||'standard settings')+'.'+dev):'');
+}
+async function toggleCleanMusic(){
+  if(ST.e.addClean&&Math.abs(ST.e.mVol-(ST.meta.musicVol??.8))<0.01) ST.e.mVol=0.5;
+  ST.hasMusic=computeHasMusic();
+  if(ST.hasMusic&&!ST.musicBuf&&ST.meta.music&&ST.ctx){ try{ ST.musicBuf=await decodeIn(ST.ctx,ST.meta.music); }catch(e){ ST.musicBuf=null; ST.hasMusic=false; toast('Couldn’t load the original track'); } }
+  if(ST.hasMusic&&ST.musicBuf&&!ST.leak){ toast('Lining the track up with your recording…'); await measureLeak(); if(!(leakFound())) toast('Couldn’t hear the music clearly in the recording. Use Music timing to line it up.'); }
+  applyMix(); restartIfPlaying(); persistEdit(); renderStPanel();
+}
+
 /* ---------- Panel events ---------- */
 $('.st-tabs').addEventListener('click',e=>{ const b=e.target.closest('[data-p]'); if(!b) return; ST.tab=b.dataset.p; renderStPanel(); });
 $('#stPanel').addEventListener('click',e=>{
@@ -4887,7 +5182,9 @@ $('#stPanel').addEventListener('click',e=>{
   const v=e.target.closest('[data-v]'); if(v){ pushUndo(); const t=selTrack(); t.fx=v.dataset.v; t.fxv=fxDefaults(t.fx); dropChain(t.id); if(ST.ctx) ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); if(!ST.playing) stPlay(); persistEdit(); renderStPanel(); return; }
   if(e.target.closest('[data-fxreset]')){ const t=selTrack(); t.fxv=fxDefaults(t.fx); dropChain(t.id); ST.chains.set(t.id,buildTrackChain(t)); restartIfPlaying(); persistEdit(); renderStPanel(); return; }
   const x=e.target.closest('[data-x]'); if(x&&!x.disabled){ const k=x.dataset.x; ST.e[k]=!ST.e[k]; x.setAttribute('aria-checked',String(ST.e[k]));
-    if(k==='clean'||k==='enhance'){ rebuildVoiceChain(); if(ST.e[k]) runClean(); renderStPanel(); } else applyLook();
+    if(k==='clean'||k==='enhance'){ rebuildVoiceChain(); if(ST.e[k]) runClean(); renderStPanel(); }
+    else if(k==='addClean'){ toggleCleanMusic(); }
+    else applyLook();
     persistEdit(); return; }
   const btn=e.target.closest('button'); const id=btn&&!btn.disabled&&btn.id;
   if(id==='tkDup') dupLayer(); else if(id==='tkSplit') splitClip(); else if(id==='tkDel') delSelected(); else if(id==='tkRec') recordLayer();
@@ -4915,7 +5212,10 @@ $('#stPanel').addEventListener('change',e=>{ const t=e.target;
   if(t.dataset.fxp){ const tr=selTrack(), ch=ST.chains.get(tr.id); if(ch&&ch.fx&&(ch.fx.rebuildOn||[]).includes(t.dataset.fxp)){ dropChain(tr.id); ST.chains.set(tr.id,buildTrackChain(tr)); restartIfPlaying(); } }
   if(t.dataset.ck) restartIfPlaying(); });
 
-const needsRender=()=>{ const E=ST.e; if(ST.meta.mixed&&isUntouched()) return false; return E.filter!=='none'||E.tracks.length>1||E.tracks.some(t=>t.fx!=='none'||t.gain!==1||t.pan||t.clips.length!==1||t.clips.some(c=>c.fadeIn||c.fadeOut||c.trimIn||c.trimOut))||E.clean||E.enhance||ST.hasMusic||E.mirror||E.vignette||E.grain||E.watermark||(E.captions&&ST.meta.captions&&ST.meta.captions.length)||E.vVol!==1; };
+// A mixed take whose voice track turned out to contain the speaker music (echo cancellation
+// didn't catch it) has the music twice in the raw file, so it's always re-rendered from the
+// aligned editor mix rather than shared as recorded.
+const needsRender=()=>{ const E=ST.e; if(ST.meta.mixed&&ST.hasMusic&&leakFound()) return true; if((ST.meta.mixed||acousticTake()||ST.meta.mode==='mic')&&isUntouched()) return false; return E.filter!=='none'||E.tracks.length>1||E.tracks.some(t=>t.fx!=='none'||t.gain!==1||t.pan||t.clips.length!==1||t.clips.some(c=>c.fadeIn||c.fadeOut||c.trimIn||c.trimOut))||E.clean||E.enhance||ST.hasMusic||E.mirror||E.vignette||E.grain||E.watermark||(E.captions&&ST.meta.captions&&ST.meta.captions.length)||E.vVol!==1; };
 async function stRender(){
   if(!window.MediaRecorder||!stCanvas.captureStream){ toast('This device can’t render video. Saving the original instead.'); return saveRec(ST.blob,true); }
   if(ST.cleaning){ toast('Finishing the clean-up first…'); while(ST.cleaning) await new Promise(r=>setTimeout(r,200)); }
@@ -4983,7 +5283,7 @@ $('#rCancel').onclick=()=>{ ST.cancel=true; };
 document.addEventListener('visibilitychange',()=>{ if(document.hidden&&!$('#studio').hidden){ if(!ST.exporting) stPause(); if(ST.draftId){ ST.draftId&&saveDraftEdit(ST.draftId,{...ST.e}); SAVE.drafts(); } } });
 /* True when nothing has been changed from how the take was recorded. */
 function isUntouched(){ const E=ST.e, t=E.tracks;
-  return E.filter==='none'&&!E.clean&&!E.enhance&&!E.mirror&&!E.vignette&&!E.grain&&E.vVol===1&&Math.abs(E.mVol-(ST.meta.musicVol??.8))<0.01&&!E.musicNudge&&t.length===1&&t[0].fx==='none'&&t[0].gain===1&&!t[0].pan&&t[0].clips.length===1&&!t[0].clips[0].trimIn&&!t[0].clips[0].trimOut&&!t[0].clips[0].fadeIn&&!t[0].clips[0].fadeOut&&!E.captions; }
+  return E.filter==='none'&&!E.clean&&!E.enhance&&!E.mirror&&!E.vignette&&!E.grain&&E.vVol===1&&Math.abs(E.mVol-(ST.meta.musicVol??.8))<0.01&&!E.musicNudge&&t.length===1&&t[0].fx==='none'&&t[0].gain===1&&!t[0].pan&&t[0].clips.length===1&&!t[0].clips[0].trimIn&&!t[0].clips[0].trimOut&&!t[0].clips[0].fadeIn&&!t[0].clips[0].fadeOut&&!E.captions&&!E.addClean; }
 
 /* =====================================================================
    Creator Studio: beat maker, lyric pad, sound recorder, script writer

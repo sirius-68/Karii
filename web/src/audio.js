@@ -100,18 +100,18 @@ refreshRoute();
 /* Mic preference: 'phone' keeps headphones on high-quality playback and records with the
    phone's own mic (what music apps do); 'headset' uses the headset mic (call quality on Bluetooth). */
 const micPref=()=>S.settings.micPref||'phone';
-function micConstraints(){
-  const headphones=ROUTE.output!=='speaker';
+/* Mic settings for a take. Voice-call noise suppression and auto-gain are always off:
+   they treat music as noise and pump the level. Echo cancellation is on only when the
+   recording plan asks for it (in-app music on the speaker, mixed digitally). */
+function micConstraints(plan){
+  const aec=plan?!!plan.aec:ROUTE.output==='speaker';
   const pref=micPref();
   const want=pref==='headset'&&ROUTE.inputs.find(i=>i.type==='bluetooth'||i.type==='headset');
   const builtin=ROUTE.inputs.find(i=>i.type==='builtin'&&i.id&&i.id!=='default');
-  const a={
-    channelCount:{ideal:1}, sampleRate:{ideal:48000}, sampleSize:{ideal:16},
-    // With headphones nothing leaks back into the mic, so echo cancellation only costs
-    // quality (and forces Bluetooth into call mode). On the speaker it stops the music
-    // bleeding into the vocal.
-    echoCancellation:!headphones, noiseSuppression:false, autoGainControl:false
-  };
+  const a={ channelCount:{ideal:1}, sampleRate:{ideal:48000}, sampleSize:{ideal:16},
+    echoCancellation:aec, noiseSuppression:false, autoGainControl:false };
+  // Chrome-specific switches some WebViews still honour
+  a.googEchoCancellation=aec; a.googNoiseSuppression=false; a.googAutoGainControl=false; a.googHighpassFilter=false;
   if(want&&want.id) a.deviceId={exact:want.id}; else if(pref==='phone'&&ROUTE.output==='bluetooth'&&builtin) a.deviceId={ideal:builtin.id};
   return a;
 }
@@ -119,11 +119,18 @@ async function prepareMicRoute(){
   if(!nativeRoute()) return;
   try{ await nat('AudioRoute','preferMic',{mic:micPref()==='headset'?'headset':'phone'}); }catch(e){}
 }
-async function openMic(){
+async function openMic(plan){
   await prepareMicRoute();
-  try{ return await navigator.mediaDevices.getUserMedia({audio:micConstraints(),video:false}); }
-  catch(e){ if(e&&(e.name==='OverconstrainedError'||e.name==='NotFoundError')) return navigator.mediaDevices.getUserMedia({audio:{echoCancellation:ROUTE.output==='speaker',noiseSuppression:false,autoGainControl:false},video:false}); throw e; }
+  let s;
+  try{ s=await navigator.mediaDevices.getUserMedia({audio:micConstraints(plan),video:false}); }
+  catch(e){ if(e&&(e.name==='OverconstrainedError'||e.name==='NotFoundError')) s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:plan?!!plan.aec:ROUTE.output==='speaker',noiseSuppression:false,autoGainControl:false},video:false}); else throw e; }
+  // Some devices ignore "off" for their own processing; ask once more, then report what stuck.
+  try{ const t=s.getAudioTracks()[0], st=t.getSettings(), want=plan?!!plan.aec:ROUTE.output==='speaker';
+    if(st.noiseSuppression||st.autoGainControl||(st.echoCancellation&&!want)) await t.applyConstraints({echoCancellation:want,noiseSuppression:false,autoGainControl:false}).catch(()=>{}); }catch(e){}
+  return s;
 }
+/* Is another app playing music right now? (Android only; null when unknown.) */
+async function externalMusicActive(){ if(!nativeRoute()) return null; try{ const r=await nat('AudioRoute','isMusicActive'); return !!r.active; }catch(e){ return null; } }
 async function releaseMicRoute(){ if(nativeRoute()) try{ await nat('AudioRoute','preferMic',{mic:'release'}); }catch(e){} }
 
 /* Level meter for a live stream: peak in dBFS and a clip counter. */
