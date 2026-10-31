@@ -947,3 +947,16 @@ table.bench th{color:var(--muted);font-weight:500}
 .mixbar .mb-l{font-size:.82rem;font-weight:600;opacity:.85}
 .mixbar input[type=range]{flex:1;min-width:0;height:32px;accent-color:#fff}
 .mixbar output{min-width:40px;text-align:right;font-variant-numeric:tabular-nums;font-size:.82rem;color:rgba(255,255,255,.75)}
+
+/* ================= Beta labels ================= */
+.beta{display:inline-flex;align-items:center;margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(251,191,36,.16);color:#FCD34D;font-size:.68rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;vertical-align:middle;line-height:1.5}
+.chip .beta{margin-left:2px;font-size:.62rem;padding:1px 6px}
+h2 .beta,h1 .beta{position:relative;top:-2px}
+.beta-note{display:flex;gap:8px;align-items:flex-start;margin:-4px 0 14px;font-size:.84rem;line-height:1.4;color:var(--muted)}
+.beta-note svg{flex:none;margin-top:2px;color:#FCD34D}
+.beta-note b{color:var(--ink-2);font-weight:600}
+.hero > div{flex:1;min-width:0;padding-right:72px}
+.hero > div h3,.hero > div p{padding-right:0}
+/* studio tiles: keep the title clear of the icon on narrow screens */
+.ctile{padding-top:66px;min-height:128px}
+.ctile.wide{padding-top:62px}

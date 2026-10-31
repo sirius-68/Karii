@@ -103,7 +103,8 @@ function cleanWordTimes(words,wt,nextLine){
    replacing AI-generated lyrics with the real ones), the old timing no longer matches the
    lines. Instead of showing stale timing, the corrected lines are re-aligned to the words
    the old timing was made for; very different lyrics fall back to the old line starts. */
-function markTimed(it){ it.timedText=lyricLines(bodyOf(it)).join('\n'); }
+// keepAnch: the timing came from aligning to the transcript, so keep its per-line evidence
+function markTimed(it,keepAnch){ it.timedText=lyricLines(bodyOf(it)).join('\n'); if(!keepAnch) it.anch=null; }
 function retimeIfLyricsChanged(it){
   if(!it||it.cat||!(it.kind==='song'||it.kind==='line')) return false;
   const cur=lyricLines(bodyOf(it)), curS=cur.join('\n');
@@ -121,11 +122,14 @@ function retimeIfLyricsChanged(it){
     const w=it.wt&&it.wt[i]&&it.wt[i].length===ws.length?it.wt[i]:distributeWords(l,T[i],end,null);
     ws.forEach((x,k)=>words.push({text:x,start:+w[k].s,end:+w[k].e})); });
   let how;
-  const r=words.length?alignLyricsToWords(cur,words):null;
+  const heard=Array.isArray(it.sttWords)&&it.sttWords.length?it.sttWords:words;
+  const r=heard.length?alignLyricsToWords(cur,heard):null;
+  // (refinement status is left as it was: timing someone set by hand stays protected)
+  if(r) it.anch=r.anchored;
   if(r&&r.confidence>=0.3){ it.times=r.times; it.ends=r.ends; it.wt=r.wt; how='aligned'; }
   else { // too different to align word by word: keep the old line starts in order
     it.times=cur.map((_,i)=>it.times[i]!=null?it.times[i]:null); it.ends=[]; it.wt=[]; how='kept'; }
-  markTimed(it); it.updated=Date.now(); SAVE.items();
+  markTimed(it,how==='aligned'); it.updated=Date.now(); SAVE.items();
   toast(how==='aligned'?'Lyrics changed, so the timing was re-aligned to your corrected lines':'Lyrics changed a lot. Line timing kept; use Re-tap to fine-tune.');
   return true;
 }
@@ -653,7 +657,7 @@ $('#sySave').onclick=()=>{
    This pass listens for where the voice actually starts (on a centre-channel "vocal focus"
    of the song) and moves line and word starts forward to it. It only ever moves starts
    later, only when the timed start falls on a quiet stretch, and never past the next word. */
-const REFINE_V=1;
+const REFINE_V=2;
 async function vocalAnalysis(buf,key){
   const k='vf:'+key; if(AN_CACHE.has(k)) return AN_CACHE.get(k);
   let src=buf;
@@ -667,21 +671,53 @@ function refineTiming(it,an){
   const lines=lyricLines(bodyOf(it)); if(!lines.length||!it.times) return 0;
   const fps=an.fps, va=an.va, n=va.length;
   const lvl=t=>{ const f=Math.round(t*fps); let m=0; for(let k=Math.max(0,f-2);k<=Math.min(n-1,f+2);k++) if(va[k]>m) m=va[k]; return m; };
-  const onset=(a,b)=>{ const need=Math.max(2,Math.round(0.09*fps)); let run=0; for(let f=Math.max(0,Math.floor(a*fps));f<=Math.min(n-1,Math.floor(b*fps));f++){ if(va[f]>an.vOn){ if(++run>=need){ const t=(f-need+1)/fps; const pk=an.peaks?nearestPeak(an.peaks,t,0.08):null; return pk!=null&&pk>=a&&pk<b?pk:t; } } else run=0; } return null; };
+  // "quiet": the voice is absent for most of the 0.1–0.4 s after t (an instrument peak doesn't count)
+  const mid=(an.vOn+an.vOff)/2, quiet=t=>{ const f0=Math.round((t+0.1)*fps), f1=Math.round((t+0.4)*fps); let s=0,c=0; for(let f=Math.max(0,f0);f<=Math.min(n-1,f1);f++){ s+=va[f]; c++; } return c>0&&s/c<mid; };
+  const onset=(a,b)=>{ const need=Math.max(3,Math.round(0.15*fps)); let run=0; for(let f=Math.max(0,Math.floor(a*fps));f<=Math.min(n-1,Math.floor(b*fps));f++){ if(va[f]>an.vOn){ if(++run>=need){ const t=(f-need+1)/fps; const pk=an.peaks?nearestPeak(an.peaks,t,0.08):null; return pk!=null&&pk>=a&&pk<b?pk:t; } } else run=0; } return null; };
   const T=fillTimes(it.times,lines.length).t; let moved=0;
   it.wt=lines.map((l,i)=>{ const w=it.wt&&it.wt[i], ws=lineWords(l); if(w&&w.length===ws.length) return w.map(x=>({s:+x.s,e:+x.e}));
     if(it.times[i]==null) return null; const nx=T[i+1]!=null?T[i+1]:T[i]+5; const e=it.ends&&it.ends[i]>T[i]?it.ends[i]:Math.min(nx-0.08,T[i]+ws.reduce((a,x)=>a+syllables(x),0)*0.38+0.5); return distributeWords(l,T[i],e,an.peaks); });
+  // Pass 0: runs of lines the transcript gave no evidence for (it.anch from the alignment).
+  // Find the sung phrases between the surrounding matched lines and give each line one, in
+  // order, choosing the phrases whose length best fits each line.
+  if(Array.isArray(it.anch)&&it.anch.length===lines.length){
+    const lineEnd=i=>{ const W=it.wt[i]; return W&&W.length?W[W.length-1].e:T[i]+2; }, lineStart=i=>{ const W=it.wt[i]; return W&&W.length?W[0].s:T[i]; };
+    const phrases=(lo,hi)=>{ const out=[]; const need=Math.max(3,Math.round(0.15*fps)), gapF=Math.round(0.5*fps); let f=Math.max(0,Math.ceil(lo*fps)); const fe=Math.min(n-1,Math.floor(hi*fps));
+      while(f<=fe){ if(va[f]>an.vOn){ let g=f, last=f, run=0; while(g<=fe&&g-last<=gapF){ if(va[g]>an.vOn){ last=g; run++; } g++; } if(run>=need) out.push([f/fps,(last+1)/fps]); f=g; } else f++; } return out; };
+    for(let i=0;i<lines.length;i++){ if(it.anch[i]) continue; let j=i; while(j+1<lines.length&&!it.anch[j+1]) j++;
+      const lo=i>0?lineEnd(i-1)+0.1:0, hi=j<lines.length-1?lineStart(j+1)-0.1:(an.dur||lineEnd(j)+30);
+      const P=phrases(lo,hi), K=j-i+1, need=[]; for(let q=i;q<=j;q++) need.push(lineWords(lines[q]).reduce((a,w)=>a+Math.max(1,syllables(w)),0)*0.34+0.2);
+      if(P.length){ // DP: line k → phrase index; a phrase may hold several lines (split), unused phrases cost a little
+        const M=P.length, INF=1e9, C=Array.from({length:K},()=>new Float64Array(M).fill(INF)), B=Array.from({length:K},()=>new Int32Array(M).fill(-1));
+        const fit=(k,m)=>Math.abs(Math.log((P[m][1]-P[m][0]+0.2)/need[k]));
+        for(let m=0;m<M;m++) C[0][m]=fit(0,m)+m*0.15;
+        for(let k=1;k<K;k++) for(let m=0;m<M;m++){ for(let m0=0;m0<=m;m0++){ if(C[k-1][m0]>=INF) continue; const c=C[k-1][m0]+(m0===m?1.2:(m-m0-1)*0.4)+fit(k,m); if(c<C[k][m]){ C[k][m]=c; B[k][m]=m0; } } }
+        let bm=0; for(let m=1;m<M;m++) if(C[K-1][m]+(M-1-m)*0.15<C[K-1][bm]+(M-1-bm)*0.15) bm=m;
+        const asg=new Array(K); for(let k=K-1;k>=0;k--){ asg[k]=bm; bm=B[k][bm]; }
+        for(let k=0;k<K;k++){ const m=asg[k]; const same=asg.filter(x=>x===m).length, pos=asg.slice(0,k).filter(x=>x===m).length; const [ps,pe]=P[m], seg=(pe-ps)/same;
+          const s0=ps+seg*pos, e0=Math.min(ps+seg*(pos+1),s0+need[k]*1.6); it.wt[i+k]=distributeWords(lines[i+k],s0,Math.max(s0+0.3,e0),an.peaks); moved++; } }
+      i=j; } }
+  // Pass 1, last line first: a line whose start falls on silence moves (whole) to where the
+  // voice begins before the next line. Going backwards lets a run of lines that were placed
+  // too early (missed by the transcript) each find their own entry.
+  for(let i=lines.length-1;i>=0;i--){ const W=it.wt[i]; if(!W||!W.length||it.times[i]==null) continue;
+    if(Array.isArray(it.anch)&&it.anch.length===lines.length&&!it.anch[i]) continue;
+    const nextStart=i<lines.length-1&&it.wt[i+1]&&it.wt[i+1].length?it.wt[i+1][0].s:W[W.length-1].e+20;
+    if(quiet(W[0].s)){ const span=W[W.length-1].e-W[0].s, o=onset(W[0].s+0.16,nextStart-Math.min(0.6,span*0.5)-0.1);
+      if(o!=null&&o-W[0].s>0.2){ // the whole line is early only if its second word also starts on silence
+        const d=Math.min(o-W[0].s,Math.max(0,nextStart-0.1-W[W.length-1].e)), whole=W.length>1&&quiet(W[1].s)&&W[1].s<o;
+        if(whole&&d>0.2){ W.forEach(x=>{ x.s+=d; x.e+=d; }); } else { W[0].s=o; if(W[0].e<o+0.1) W[0].e=o+0.3; } moved++; } } }
   for(let i=0;i<lines.length;i++){
     const W=it.wt[i]; if(!W||!W.length||it.times[i]==null) continue;
     const ws=lineWords(lines[i]), prevEnd=i>0&&it.wt[i-1]&&it.wt[i-1].length?it.wt[i-1][it.wt[i-1].length-1].e:0;
-    const nextStart=i<lines.length-1&&it.times[i+1]!=null?T[i+1]:W[W.length-1].e+4;
+    const nextStart=i<lines.length-1&&it.wt[i+1]&&it.wt[i+1].length?it.wt[i+1][0].s:W[W.length-1].e+4;
     // Each word, in order: if its timed start lands on silence, move the start to where the
     // voice begins (for a line's first word this covers intros and waits between lines).
     for(let k=0;k<W.length;k++){ const x=W[k], dur=Math.max(0.15,x.e-x.s);
       if(k>0&&x.s<W[k-1].s+0.04) x.s=W[k-1].s+0.04;
       const lim=(k<W.length-1?W[k+1].s:nextStart)-0.08, upper=k===0?Math.min(nextStart-0.3,x.s+20):lim;
       // "silent start": no voice just after the timed start (a real start has its vowel there)
-      if(upper>x.s+0.3&&lvl(x.s+0.16)<an.vOff&&lvl(x.s+0.26)<an.vOff){ const o=onset(x.s+0.16,upper);
+      if(upper>x.s+0.3&&quiet(x.s)){ const o=onset(x.s+0.16,upper);
         if(o!=null&&o-x.s>0.12){ x.s=o; if(x.e<o+0.1) x.e=o+Math.min(dur,0.8); moved++; } }
       if(k>0&&W[k-1].e>x.s-0.01) W[k-1].e=Math.max(W[k-1].s+0.05,x.s-0.01); }
     // words pushed past the next one by the move above keep their order
@@ -696,7 +732,7 @@ async function refineInBackground(it){
   if(!it||it.cat||it.refined>=REFINE_V||!(it.times||[]).some(v=>v!=null)||!player.hasAudio) return;
   const key=player.key, buf=player.buf;
   try{ const an=await vocalAnalysis(buf,key); if(A!==it||player.key!==key) return;
-    const moved=refineTiming(it,an); markTimed(it); it.updated=Date.now(); SAVE.items();
+    const moved=refineTiming(it,an); markTimed(it,true); it.updated=Date.now(); SAVE.items();
     if(moved&&state==='idle'&&!player.playing()&&!stage.hidden){ buildKara(); K.idx=-2; updateKara(); toast('Lyric timing adjusted to where the singing starts'); } }catch(e){}
 }
 function finishTiming(s,an){
@@ -774,6 +810,8 @@ async function autoSync(it,mode){
         else if(st.stage==='listen') ps.creep('Listening'+(ASR.device==='webgpu'?' (GPU)':'')+'… this can take a minute',.58,.95,(audioDur||60)*(ASR.device==='webgpu'?0.25:IS_MOBILE?1.6:0.7)+10,'Lectern is transcribing on your device. Nothing is uploaded. You can keep using the app.');
         else if(st.stage==='retry') ps.set('Switching to a safer mode and retrying…',.55,'Your device’s GPU engine had a hiccup, so Lectern is retrying on the CPU. This is slower but more reliable.'); },stt);
       if(!res.words.length) throw new Error('No words were recognised.');
+      // keep what the recogniser heard, so corrected lyrics can be re-aligned later without re-transcribing
+      it.sttWords=res.words.map(w=>({text:w.text,start:+(+w.start).toFixed(2),end:+(+w.end).toFixed(2)}));
       it.stt={model:res.model,language:stt.language,focus:!!stt.vocalFocus,seconds:+res.seconds.toFixed(1),audioDur:+(res.duration||audioDur||0).toFixed(1)};
       ps.set('Aligning words…',.92);
       if(mode==='generate'||!lines.length){
@@ -782,11 +820,11 @@ async function autoSync(it,mode){
         if(!it.title||/^Untitled/.test(it.title)) it.title=(g.lines[0]||'Transcribed').replace(/[,.!?]+$/,'').slice(0,40);
         toast('Transcribed '+g.lines.length+' lines with word timing');
       } else {
-        const r=alignLyricsToWords(lines,res.words); it.times=r.times; it.ends=r.ends; it.wt=r.wt;
+        const r=alignLyricsToWords(lines,res.words); it.times=r.times; it.ends=r.ends; it.wt=r.wt; it.anch=r.anchored;
         toast('AI-synced '+lines.length+' lines · '+Math.round(r.confidence*100)+'% of words matched');
       }
       ps.set('Checking where the singing starts…',.95); try{ const vb=await decodeBlob(blob); refineTiming(it,await vocalAnalysis(vb,musicKey(it,false))); }catch(e){}
-      markTimed(it); it.updated=Date.now(); SAVE.items(); ps.done(lyricLines(it.body).length+' lines with word timing',mode==='generate'||!lines.length?(it.kind==='line'?'Lines ready':'Lyrics ready'):'Synced');
+      markTimed(it,true); it.updated=Date.now(); SAVE.items(); ps.done(lyricLines(it.body).length+' lines with word timing',mode==='generate'||!lines.length?(it.kind==='line'?'Lines ready':'Lyrics ready'):'Synced');
     }
     lineEditorRefresh();
   }catch(e){

@@ -15,6 +15,7 @@ with simulated devices. It has not been confirmed on a real phone yet.
 | 23 | Background music volume control on the karaoke recording screen | Fixed (simulated), build 7 |
 | 24 | Incorrect word highlighting during intros and vocal pauses | Fixed (simulated), build 7 |
 | 25 | Audio distortion, stuttering and lyric skipping during recording | Fixed (simulated), build 7. Needs real-device confirmation |
+| 24b | AI sync still lit the first word in the intro and jumped to a later "ooh" | Fixed (simulated), build 8: lyric matching keeps only matches that form a singable timeline; missed lines placed on detected singing |
 
 ---
 

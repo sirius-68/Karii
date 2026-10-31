@@ -69,7 +69,7 @@ function rowHTML(it,{tag=false,sub=null}={}){
 }
 const sqHTML=(it,cls='')=>`<button class="sq ${cls}" data-act="open" data-id="${esc(it.id)}"><span class="art" style="${coverCss(it,cls?400:340)}"></span><b>${esc(titleOf(it))}</b><span>${esc(it.sub||KIND[it.kind].label)}</span></button>`;
 const fcHTML=it=>`<button class="fc" data-act="open" data-id="${esc(it.id)}"><span class="art" style="${coverCss(it,352)}"><span class="stats"><span class="stat">${ic('play','fill')}${fmtK(playsOf(it.id)*31)}</span><span class="stat">${ic('timer')}${fmt(durOf(it))}</span></span></span><b>${esc(it.title)}</b><span class="s">${esc(it.genre)} · ${esc(it.level)}</span></button>`;
-const secHead=(title,act)=>`<div class="sec-h"><h2>${esc(title)}</h2>${act?`<button class="more" ${act}>More ${ic('chevron-right','sm')}</button>`:''}</div>`;
+const secHead=(title,act,badge)=>`<div class="sec-h"><h2>${esc(title)}${badge||''}</h2>${act?`<button class="more" ${act}>More ${ic('chevron-right','sm')}</button>`:''}</div>`;
 const catList=kind=>[...CAT.values()].filter(x=>x.kind===kind && !x.pdb && !x.user);
 const userInst=()=>[...CAT.values()].filter(x=>x.user);
 const allInst=()=>[...userInst(),...catList('inst')];
@@ -80,12 +80,11 @@ RENDER.explore=function(){
   const el=$('#tab-explore');
   const ints=(S.profile&&S.profile.interests&&S.profile.interests.length)?S.profile.interests:['song','poem','line','script'];
   const songs=[...catList('song'),...S.items.filter(s=>s.kind==='song')];
-  const pick=catList('song')[Math.floor(Date.now()/864e5)%catList('song').length];
   const recent=S.recents.played.map(find).filter(x=>x && x.kind!=='inst').slice(0,10);
   const hour=new Date().getHours(), greet=hour<5?'Up late':hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';
   const unread=NEWS.length>S.newsSeen;
   const secs={
-    song:`<section class="sec" id="sec-song">${secHead('Sing now','data-act="more" data-kind="song"')}<div class="rowgrid">${songs.map(s=>rowHTML(s)).join('')}</div></section>`,
+    song:`<section class="sec" id="sec-song">${secHead('Sing now','data-act="more" data-kind="song"','<span class="beta">Beta</span>')}<p class="beta-note pad">${ic('flask-conical','xs')}<span><b>Karaoke is in beta.</b> It’s still being tested, so you may run into errors while you use it.</span></p><div class="rowgrid">${songs.map(s=>rowHTML(s)).join('')}</div></section>`,
     poem:`<section class="sec" id="sec-poem">${secHead('Poems for tonight','data-act="more" data-kind="poem"')}<div class="hscroll">${catList('poem').map(p=>sqHTML(p)).join('')}</div></section>
       <section class="sec" id="sec-classic">${secHead('Classic poems','data-act="classics-more"')}<div class="hscroll" id="classics">${classicsHTML()}</div>
       <div class="hscroll" style="margin-top:16px">${CLASSIC_POETS.map(a=>`<button class="chip" data-act="poet" data-name="${esc(a)}">${ic('feather','xs')}${esc(a)}</button>`).join('')}</div></section>`,
@@ -99,12 +98,12 @@ RENDER.explore=function(){
       <button class="circ bellwrap" data-act="news" aria-label="What's new">${ic('bell')}${unread?'<i class="badge"></i>':''}</button>
     </div>
     <div class="pad" style="margin-top:22px;color:var(--muted);font-size:.95rem">${greet}${S.auth&&S.auth.signedIn?', '+esc(firstName()):''}</div>
-    <button class="hero" data-act="open" data-id="${pick.id}" style="${coverCss({...pick,id:pick.id+':hero'},560)}">
-      <div><small>${ic('sparkles','xs')} Tonight's pick</small><h3>${esc(pick.title)}</h3><p>${esc(pick.sub)} · ${fmt(pick.dur)} · Karaoke</p></div>
-      <span class="go" aria-hidden="true">${ic('mic-vocal')}</span>
+    <button class="hero" data-act="scripts" style="${coverCss({id:'hero-script',kind:'script',title:'Create a script'},560)}">
+      <div><small>${ic('scroll-text','xs')} Script writer</small><h3>Create a script</h3><p>Talks, videos and presentations</p></div>
+      <span class="go" aria-hidden="true">${ic('pen-line')}</span>
     </button>
     <div class="hscroll cats">
-      <button class="chip" data-act="jump" data-sec="sec-song">${ic('mic-vocal','xs')}Karaoke</button>
+      <button class="chip" data-act="jump" data-sec="sec-song">${ic('mic-vocal','xs')}Karaoke <span class="beta">Beta</span></button>
       <button class="chip" data-act="jump" data-sec="sec-poem">${ic('feather','xs')}Poems</button>
       <button class="chip" data-act="jump" data-sec="sec-line">${ic('clapperboard','xs')}Movie lines</button>
       <button class="chip" data-act="jump" data-sec="sec-inst">${ic('audio-waveform','xs')}Instrumentals</button>
@@ -345,7 +344,7 @@ function openDownloads(){ push('downloads',el=>{
 function openList(kind){ push('list',el=>{
   const ttl={song:'Karaoke',poem:'Poems',line:'Movie lines',inst:'Instrumentals'}[kind];
   const items=[...catList(kind),...(kind==='inst'?[]:S.items.filter(s=>s.kind===kind))];
-  el.innerHTML=pbar(ttl)+`<h1 class="big">${ttl}</h1><div class="list">${items.map(x=>rowHTML(x)).join('')}</div>`;
+  el.innerHTML=pbar(ttl)+`<h1 class="big">${ttl}${kind==='song'?' <span class="beta">Beta</span>':''}</h1>${kind==='song'?`<p class="beta-note pad">${ic('flask-conical','xs')}<span><b>Karaoke is in beta.</b> It’s still being tested, so you may run into errors while you use it.</span></p>`:''}<div class="list">${items.map(x=>rowHTML(x)).join('')}</div>`;
 }); }
 function openClassics(author){ push('classics',el=>{
   el.innerHTML=pbar(author||'Classic poems')+`<h1 class="big">${esc(author||'Classic poems')}</h1>${author?'':`<div class="hscroll" style="margin-bottom:16px">${CLASSIC_POETS.map(a=>`<button class="chip" data-act="poet" data-name="${esc(a)}">${esc(a)}</button>`).join('')}</div>`}<div class="list" id="clList">${Array.from({length:6},()=>`<div class="row"><span class="th sk"></span><span class="tx"><span class="sk" style="display:block;height:14px;width:60%"></span><span class="sk" style="display:block;height:12px;width:35%;margin-top:8px"></span></span></div>`).join('')}</div><p class="hint pad" style="margin-top:16px">Public-domain poems from PoetryDB (CC BY 4.0 edition). Tap one to read it aloud.</p>`;

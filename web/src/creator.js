@@ -79,10 +79,10 @@ RENDER.studio=function(){
   el.innerHTML=`<div class="libhead"><h1 class="bigtitle">Studio</h1><button class="circ" data-act="create" aria-label="New">${ic('plus')}</button></div>
     <p class="pad mute" style="margin:6px 0 20px">Write lyrics, build beats, record sounds and draft scripts.</p>
     <div class="ctiles">
-      ${t('beat','inst','beatmaker','drum','Beat maker','Chords, drums and grooves in six styles',true)}
+      ${t('script','script','scripts','scroll-text','Script writer','Templates for talks and videos',true)}
       ${t('lyric','poem','lyricpad','pen-line','Lyric pad','Syllables, rhymes, auto-placed on the beat')}
       ${t('rec','song','recorder','mic','Sound recorder','Hums, vocals, foley, ideas')}
-      ${t('script','script','scripts','scroll-text','Script writer','Templates for talks and videos')}
+      ${t('beat','inst','beatmaker','drum','Beat maker','Chords, drums and grooves in six styles')}
       ${t('clip','line','clip-new','film','Clip to lines','Import a movie clip, get the lines')}
       ${t('song2','song','song-new','wand-sparkles','Song to lyrics','Transcribe a song into karaoke',true)}
     </div>

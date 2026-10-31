@@ -283,31 +283,90 @@ function alignWords(lyr,tr){
   const n=lyr.length,m=tr.length, G=-0.45, S=new Float32Array((n+1)*(m+1)), P=new Uint8Array((n+1)*(m+1)), ix=(i,j)=>i*(m+1)+j;
   for(let i=1;i<=n;i++){ S[ix(i,0)]=i*G; P[ix(i,0)]=1; } for(let j=1;j<=m;j++){ S[ix(0,j)]=j*G; P[ix(0,j)]=2; }
   for(let i=1;i<=n;i++) for(let j=1;j<=m;j++){
-    const sim=wsim(lyr[i-1],tr[j-1]), ms=sim>=0.6?sim*1.4:-0.7;
+    // short words must match exactly: fuzzy matches of "the", "a", "me" are mostly noise
+    const lw_=lyr[i-1], sim=wsim(lw_,tr[j-1]), ok_=lw_.length<=3?sim===1:sim>=0.6, ms=ok_?sim*(isFiller(lw_)?0.6:1.4):-0.7;
     const d=S[ix(i-1,j-1)]+ms, u=S[ix(i-1,j)]+G, l=S[ix(i,j-1)]+G;
     if(d>=u&&d>=l){ S[ix(i,j)]=d; P[ix(i,j)]=0; } else if(u>=l){ S[ix(i,j)]=u; P[ix(i,j)]=1; } else { S[ix(i,j)]=l; P[ix(i,j)]=2; } }
   const map=new Int32Array(n).fill(-1); let i=n,j=m;
-  while(i>0||j>0){ const p=P[ix(i,j)]; if(i>0&&j>0&&p===0){ if(wsim(lyr[i-1],tr[j-1])>=0.6) map[i-1]=j-1; i--; j--; } else if(i>0&&(p===1||j===0)) i--; else j--; }
+  while(i>0||j>0){ const p=P[ix(i,j)]; if(i>0&&j>0&&p===0){ const sm=wsim(lyr[i-1],tr[j-1]); if(lyr[i-1].length<=3?sm===1:sm>=0.6) map[i-1]=j-1; i--; j--; } else if(i>0&&(p===1||j===0)) i--; else j--; }
   return map;
 }
+/* Filler vocalisations: transcribers often drop, merge or move them, and they repeat all
+   through a song, so on their own they are weak evidence of where a lyric is. */
+const FILLER=new Set(['ooh','oooh','oh','ohh','ah','ahh','aah','uh','um','mm','mmm','hmm','yeah','yea','ya','la','na','da','hey','whoa','woah','wo','oo','ay','eh','ha','huh','ooo','ohoh','ooooh','mmmm','да','о','а','ах','ох','ля','на','эй']);
+const isFiller=w=>FILLER.has(w)||/^(o+h*|a+h+|m+|la+|na+|ye+a*h*|wo+a*h*)$/.test(w);
+/* Lyrics ↔ transcript, in three steps:
+   1. Needleman–Wunsch word alignment (fillers score low).
+   2. Keep only the matches that form a believable timeline: as many strong matches as
+      possible, in order, with a singable number of syllables per second between any two.
+      A repeated "ooh" matched two verses away, or a first word matched to a sound in the
+      intro, breaks that and is dropped.
+   3. Fill the words between kept matches at a natural singing pace, line by line, instead
+      of stretching them across instrumental breaks. */
 function alignLyricsToWords(lines,words){
-  const lw=[], owner=[]; lines.forEach((l,li)=>lineWords(l).forEach(w=>{ lw.push(normWord(w)); owner.push(li); }));
+  const lw=[], owner=[], raw=[]; lines.forEach((l,li)=>lineWords(l).forEach(w=>{ raw.push(w); lw.push(normWord(w)); owner.push(li); }));
   const tw=words.map(w=>normWord(w.text));
   const map=alignWords(lw,tw);
-  const st=new Array(lw.length).fill(null), en=new Array(lw.length).fill(null);
-  map.forEach((j,i)=>{ if(j>=0){ st[i]=words[j].start; en[i]=words[j].end; } });
-  // interpolate gaps by syllables
-  const syl=lines.flatMap(l=>lineWords(l).map(w=>Math.max(1,syllables(w))));
-  let k=0; while(k<st.length){ if(st[k]!=null){ k++; continue; } let a=k-1,b=k; while(b<st.length&&st[b]==null) b++;
-    const t0=a>=0?en[a]:(b<st.length?Math.max(0,st[b]-2):0), t1=b<st.length?st[b]:(a>=0?en[a]+2:t0+2);
-    const seg=syl.slice(k,b), tot=seg.reduce((x,y)=>x+y,0); let acc=0;
-    for(let q=k;q<b;q++){ st[q]=t0+(t1-t0)*acc/tot; acc+=syl[q]; en[q]=t0+(t1-t0)*acc/tot; } k=b; }
+  const n=lw.length, syl=raw.map(w=>Math.max(1,syllables(w)));
+  const cs=new Float64Array(n+1); for(let i=0;i<n;i++) cs[i+1]=cs[i]+syl[i];
+  // candidate anchors
+  const A=[]; for(let i=0;i<n;i++){ const j=map[i]; if(j<0) continue; const w=words[j]; if(!(isFinite(w.start)&&isFinite(w.end))) continue;
+    const exact=lw[i]===tw[j], filler=isFiller(lw[i]);
+    const nb=(i>0&&map[i-1]===j-1)||(i<n-1&&map[i+1]===j+1);
+    // a lone short word (not next to another match) is weak evidence too
+    const weak=(filler&&!nb)||(lw[i].length<=3&&!nb);
+    A.push({i,j,t:+w.start,e:+w.end,wt:weak?0.25:filler?0.6:(lw[i].length>=4?1.3:1)*(exact?1:0.7)*(nb?1.5:1)}); }
+  const K=A.length, best=new Float64Array(K), prev=new Int32Array(K).fill(-1);
+  const ok=(a,b)=>{ const dt=b.t-a.t, sy=cs[b.i]-cs[a.i]; if(dt<=0.03) return false;
+    if(dt/sy<0.055) return false;                                   // faster than anyone sings
+    const sameLine=owner[a.i]===owner[b.i]; if(sameLine) return dt<=sy*1.8+1.2;  // held notes allowed
+    return dt<=sy*1.8+30; };                                          // instrumental breaks allowed between lines
+  // jumping over sung material the lyrics don't account for costs a little per transcript word
+  // (a chorus matched to the next chorus skips the whole verse in between)
+  const skip=(a,b)=>Math.max(0,(b.j-a.j-1)-(b.i-a.i-1)-2)*0.6;
+  for(let b=0;b<K;b++){ best[b]=A[b].wt-Math.max(0,A[b].j-A[b].i-2)*0.6; for(let a=0;a<b;a++){ const v=best[a]+A[b].wt-skip(A[a],A[b]); if(v>best[b]&&ok(A[a],A[b])){ best[b]=v; prev[b]=a; } } }
+  let end=-1, bv=-1; for(let b=0;b<K;b++) if(best[b]>bv){ bv=best[b]; end=b; }
+  const keep=new Set(); for(let b=end;b>=0;b=prev[b]) keep.add(b);
+  const st=new Array(n).fill(null), en=new Array(n).fill(null); let kept=0;
+  A.forEach((a,k)=>{ if(keep.has(k)&&a.wt>0.3){ st[a.i]=a.t; en[a.i]=Math.max(a.t+0.06,a.e); kept++; } });
+  // a filler kept only if it sits right next to a kept strong word
+  A.forEach((a,k)=>{ if(keep.has(k)&&a.wt<=0.3&&((a.i>0&&st[a.i-1]!=null)||(a.i<n-1&&st[a.i+1]!=null))){ st[a.i]=a.t; en[a.i]=Math.max(a.t+0.06,a.e); kept++; } });
+  // fill the gaps
+  const PACE=0.3, idx=[]; for(let i=0;i<n;i++) if(st[i]!=null) idx.push(i);
+  // this song's usual gap between the end of one line and the start of the next
+  const gaps=[]; for(let i=1;i<n;i++) if(owner[i]!==owner[i-1]&&st[i]!=null&&en[i-1]!=null){ const g=st[i]-en[i-1]; if(g>0&&g<8) gaps.push(g); }
+  gaps.sort((x,y)=>x-y); const GAP=Math.max(0.3,Math.min(4,gaps.length?gaps[gaps.length>>1]:1.2));
+  const fwd=(from,t)=>{ for(let q=from;q<n&&st[q]==null;q++){ if(q>from&&owner[q]!==owner[q-1]) t+=0.9; st[q]=t; t+=syl[q]*PACE; en[q]=t-0.04; } };
+  if(!idx.length){ let t=1; for(let q=0;q<n;q++){ if(q&&owner[q]!==owner[q-1]) t+=1.2; st[q]=t; t+=syl[q]*PACE; en[q]=t-0.04; } }
+  else {
+    // before the first kept word: back from it at singing pace (never into negative time)
+    { const f=idx[0]; let t=st[f]; for(let q=f-1;q>=0;q--){ t-=syl[q]*PACE+(owner[q]!==owner[q+1]?0.9:0); st[q]=t; en[q]=t+syl[q]*PACE-0.04; }
+      if(f>0&&st[0]<0){ const sh=-st[0]+0.05, span=st[f]; for(let q=0;q<f;q++){ st[q]=(st[q]+sh)*span/(span+sh); en[q]=Math.min(st[q]+syl[q]*PACE,(q+1<f?st[q+1]+sh:span)); } } }
+    for(let k=0;k<idx.length-1;k++){ const a=idx[k], b=idx[k+1]; if(b===a+1) continue;
+      const t0=en[a], t1=st[b], need=(cs[b]-cs[a+1])*PACE+0.9*((owner[b]-owner[a])||0);
+      if(need>=t1-t0-0.05){ // not much room: spread proportionally, like before
+        let acc=0; const tot=cs[b]-cs[a+1]; for(let q=a+1;q<b;q++){ st[q]=t0+(t1-t0)*acc/tot; acc+=syl[q]; en[q]=t0+(t1-t0)*acc/tot; } }
+      else { // room to spare (a break): finish a's line after a, start b's line just before b, spread whole lines in between
+        let q=a+1, t=t0+0.04; while(q<b&&owner[q]===owner[a]){ st[q]=t; t+=syl[q]*PACE; en[q]=t-0.04; q++; }
+        let r=b-1, u=t1-0.04; const back=[]; while(r>=q&&owner[r]===owner[b]){ u-=syl[r]*PACE; back.push(r); st[r]=u; en[r]=u+syl[r]*PACE-0.04; r--; }
+        // whole lines the transcript missed: they usually follow on at the song's normal gap
+        // between lines, so place them one after another from there (squeezed if needed)
+        // whole lines the transcript missed are placed straight after the previous line at the
+        // song's usual gap (squeezed if needed). If that is too early, the vocal-activity pass
+        // (refineTiming) moves them later, onto the singing; it never needs to move them earlier.
+        if(q<=r){ const hi=(back.length?st[back[back.length-1]]:t1)-0.3; let tt=t-0.04+GAP; const first=tt; const zs=[];
+          for(let z=q;z<=r;z++){ if(z>q&&owner[z]!==owner[z-1]) tt+=GAP; st[z]=tt; tt+=syl[z]*PACE; en[z]=tt-0.04; zs.push(z); }
+          if(tt>hi&&tt>first){ const k2=(hi-first)/(tt-first); zs.forEach(z=>{ st[z]=first+(st[z]-first)*k2; en[z]=first+(en[z]-first)*k2; }); } } } }
+    fwd(idx[idx.length-1]+1,en[idx[idx.length-1]]+0.04);
+  }
+  for(let i=1;i<n;i++){ if(st[i]<st[i-1]+0.04) st[i]=st[i-1]+0.04; if(en[i-1]>st[i]) en[i-1]=Math.max(st[i-1]+0.05,st[i]-0.01); }
   const times=[], wt=[], ends=[]; let p=0;
-  lines.forEach((l,li)=>{ const c=lineWords(l).length; const arr=[]; for(let q=0;q<c;q++,p++) arr.push({s:+st[p].toFixed(3),e:+Math.max(st[p]+0.05,en[p]).toFixed(3)});
+  lines.forEach((l,li)=>{ const c=lineWords(l).length; const arr=[]; for(let q=0;q<c;q++,p++) arr.push({s:+Math.max(0,st[p]).toFixed(3),e:+Math.max(st[p]+0.05,en[p]).toFixed(3)});
     times.push(arr.length?arr[0].s:(times[li-1]||0)+2); ends.push(arr.length?arr[arr.length-1].e:times[li]+1); wt.push(arr); });
   for(let i=1;i<times.length;i++) if(times[i]<=times[i-1]) times[i]=+(times[i-1]+0.05).toFixed(3);
-  const matched=map.filter(x=>x>=0).length;
-  return {times,ends,wt,confidence:lw.length?matched/lw.length:0};
+  // which lines rest on at least one real match (the others were placed by estimate)
+  const anchored=lines.map(()=>false); A.forEach((a,k)=>{ if(keep.has(k)&&a.wt>0.3) anchored[owner[a.i]]=true; });
+  return {times,ends,wt,anchored,confidence:n?kept/n:0,matched:map.filter(x=>x>=0).length};
 }
 function wordsToLines(words){
   const lines=[], times=[], wt=[], ends=[]; let cur=[];
