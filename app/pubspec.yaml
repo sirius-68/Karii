@@ -1,0 +1,21 @@
+name: lectern
+description: Lectern — karaoke, teleprompter and a small music studio. Native Android app (Flutter UI, C++ audio engine).
+publish_to: 'none'
+version: 2.0.0+20
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  camera: '>=0.11.0 <0.13.0'
+  video_player: ^2.9.0
+  path_provider: ^2.1.0
+  share_plus: '>=11.0.0 <14.0.0'
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/audio/
+    - assets/data/

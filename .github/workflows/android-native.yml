@@ -1,0 +1,88 @@
+# Builds the native Lectern app (Flutter + C++ audio engine) for Android.
+# Runs on every push to main, or by hand from the Actions tab.
+# The APK is published on the "apk" branch as Lectern.apk.
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate the platform project and add Lectern's native code
+        run: |
+          set -o pipefail
+          flutter --version 2>&1 | tee -a ../build.log
+          flutter create --org com.lectern --project-name lectern --platforms android --no-pub . 2>&1 | tee -a ../build.log
+          python3 tool/patch_android.py 2>&1 | tee -a ../build.log
+
+      - name: Get packages
+        run: |
+          set -o pipefail
+          flutter pub get 2>&1 | tee -a ../build.log
+
+      - name: Check the Dart code
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee ../analyze.log | tee -a ../build.log
+
+      - name: Build the APK
+        run: |
+          set -o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          flutter build apk --release --target-platform android-arm64 2>&1 | tee -a ../build.log
+          cp build/app/outputs/flutter-apk/app-release.apk ../Lectern.apk
+
+      - name: Publish to the apk branch
+        working-directory: .
+        run: |
+          mkdir -p /tmp/apkbranch && cp Lectern.apk /tmp/apkbranch/
+          printf 'Latest Android build of Lectern (native).\n\nBuilt from %s on %s.\n' "$GITHUB_SHA" "$(date -u +'%Y-%m-%d %H:%M UTC')" > /tmp/apkbranch/README.md
+          cd /tmp/apkbranch
+          git init -q -b apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -qm "Lectern.apk from ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk:apk
+
+      # Logs can't be downloaded from where this app is developed, so failures are surfaced
+      # as annotations (readable through the API): every error line, then the log's tail.
+      - name: Report build errors
+        if: failure()
+        working-directory: .
+        run: |
+          [ -f build.log ] || exit 0
+          { grep -E "^\s*error •|error -|\.dart:[0-9]+:[0-9]+: Error" build.log || true
+            grep -nE "^e: |error:|What went wrong|FAILURE|CMake Error|undefined reference|Exception" build.log | grep -v "^\s*$" || true; } | awk '!seen[$0]++' | head -n 108 > errs.log
+          # GitHub keeps at most 10 error annotations per step: pack 12 lines into each
+          split -l 12 -d errs.log part_ || true
+          n=0
+          for f in part_*; do
+            [ -f "$f" ] || continue; n=$((n+1)); [ $n -gt 9 ] && break
+            body=$(sed -e 's/%/%25/g' "$f" | cut -c1-400 | awk '{printf "%s%%0A", $0}')
+            echo "::error title=errors part $n::${body}"
+          done
+          tail -n 40 build.log | grep -v '^\s*$' | tail -n 30 > tail.log
+          body=$(sed -e 's/%/%25/g' tail.log | cut -c1-400 | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build log (last lines)::${body}"
