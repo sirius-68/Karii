@@ -86,6 +86,13 @@ class MainActivity : FlutterActivity() {
                     "seek" -> { NativeEngine.nativeSeek(call.argument<Double>("sec") ?: 0.0); result.success(null) }
                     "rate" -> { NativeEngine.nativeSetRate(call.argument<Double>("rate") ?: 1.0); result.success(null) }
                     "volume" -> { NativeEngine.nativeSetVolume((call.argument<Double>("v") ?: 1.0).toFloat()); result.success(null) }
+                    "music" -> {
+                        NativeEngine.nativeSetMusic(
+                            call.argument<Double>("start") ?: 0.0, call.argument<Double>("end") ?: 0.0, call.argument<Boolean>("loop") ?: false,
+                            call.argument<Double>("fadeIn") ?: 0.0, call.argument<Double>("fadeOut") ?: 0.0
+                        )
+                        result.success(null)
+                    }
                     "state" -> result.success(NativeEngine.nativeState().toList())
                     "openMic" -> async {
                         // music stays on the media path (never the call/SCO path: that is narrowband, "radio" sound)
@@ -112,7 +119,8 @@ class MainActivity : FlutterActivity() {
                         val fin = org.json.JSONObject(
                             NativeEngine.nativeFinalize(
                                 call.argument<String>("voice")!!, call.argument<String>("music") ?: "", wav,
-                                call.argument<Int>("mode") ?: 0, call.argument<Double>("balance") ?: 0.0
+                                call.argument<Int>("mode") ?: 0, call.argument<Double>("balance") ?: 0.0,
+                                call.argument<Double>("fadeIn") ?: 0.0, call.argument<Double>("fadeOut") ?: 0.0, call.argument<Double>("duckDb") ?: 0.0
                             )
                         )
                         if (!fin.optBoolean("ok")) throw IllegalStateException(fin.optString("error", "mix failed"))
@@ -136,7 +144,7 @@ class MainActivity : FlutterActivity() {
                         File(wav).delete()
                         mapOf(
                             "offset" to (off ?: 0.0), "lufs" to fin.optDouble("outLufs"), "truePeak" to fin.optDouble("truePeak"),
-                            "voiceLufs" to fin.optDouble("voiceLufs"), "musicLufs" to fin.optDouble("musicLufs"), "gain" to fin.optDouble("gain"),
+                            "voiceLufs" to fin.optDouble("voiceLufs"), "musicLufs" to fin.optDouble("musicLufs"), "gain" to fin.optDouble("gain"), "duckMin" to fin.optDouble("duckMin"),
                             "seconds" to fin.optDouble("seconds")
                         )
                     }
@@ -169,18 +177,6 @@ class MainActivity : FlutterActivity() {
                     "jobs.takeOpen" -> { result.success(pendingOpen); pendingOpen = null }
                     "transcribeProgress" -> result.success(NativeEngine.nativeTranscribeProgress())
                     "transcribeCancel" -> { NativeEngine.nativeTranscribeCancel(); result.success(null) }
-                    "analyzeVocals" -> async {
-                        val asset = call.argument<String>("asset")
-                        val path = call.argument<String>("path")
-                        val url = call.argument<String>("url")
-                        val pcm = when {
-                            asset != null -> Media.decodeAsset(this, assetKey(asset))
-                            path != null -> Media.decodeFile(path)
-                            url != null -> Media.decodeFile(Media.fetch(this, url).path)
-                            else -> throw IllegalArgumentException("no audio")
-                        }
-                        NativeEngine.nativeAnalyzeVocals(pcm.buf, pcm.frames, pcm.channels, pcm.rate)
-                    }
                     "wavToM4a" -> async { Media.wavToM4a(call.argument<String>("wav")!!, call.argument<String>("out")!!); true }
                     "videoDuration" -> async { Media.videoDuration(call.argument<String>("path")!!) }
                     "saveToGallery" -> async { Media.saveVideoToGallery(this, call.argument<String>("path")!!, call.argument<String>("name")!!) }

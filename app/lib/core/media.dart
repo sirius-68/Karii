@@ -22,16 +22,9 @@ MusicSource instSource(Item inst) {
   return MusicSource.empty;
 }
 
-/// Music for an item; [guide] picks the arrangement with the guide melody when there is one.
-MusicSource musicFor(Item it, {bool guide = false}) {
-  if (it.isCat) {
-    if (it.kind == Kind.song) {
-      final a = guide && it.audioGuideAsset != null ? it.audioGuideAsset : it.audioAsset;
-      return a != null ? MusicSource(asset: a, label: it.title) : MusicSource.empty;
-    }
-    if (it.kind == Kind.inst) return instSource(it);
-    return MusicSource.empty;
-  }
+/// Background music of an item.
+MusicSource musicFor(Item it) {
+  if (it.kind == Kind.inst) return instSource(it);
   final m = it.music;
   if (m == null) return MusicSource.empty;
   switch (m['type']) {
@@ -42,19 +35,6 @@ MusicSource musicFor(Item it, {bool guide = false}) {
     case 'inst':
       final inst = Store.i.find('${m['id']}');
       return inst != null ? instSource(inst) : MusicSource.empty;
-    case 'cat':
-      final s = Catalog.i.get('${m['id']}');
-      return s != null ? musicFor(s, guide: guide) : MusicSource.empty;
   }
   return MusicSource.empty;
-}
-
-bool hasGuide(Item it) {
-  if (it.isCat) return it.audioGuideAsset != null;
-  final m = it.music;
-  if (m != null && m['type'] == 'cat') {
-    final s = Catalog.i.get('${m['id']}');
-    return s?.audioGuideAsset != null;
-  }
-  return false;
 }

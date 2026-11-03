@@ -1,33 +1,39 @@
-// Items (songs, poems, movie lines, scripts, instrumentals), takes and drafts.
+// Performance projects (poems, movie lines/scenes, scripts, spoken lyrics), music, takes.
 // Items keep their data in a JSON map so catalogue entries and user items share one shape.
-import '../lyrics/timing.dart';
+import 'dart:ui' show Color;
 
-enum Kind { song, poem, line, script, inst }
+import 'text.dart';
+
+enum Kind { poem, line, script, lyrics, inst }
 
 Kind kindOf(String? k) {
   switch (k) {
-    case 'song':
-      return Kind.song;
     case 'poem':
       return Kind.poem;
     case 'line':
       return Kind.line;
     case 'inst':
       return Kind.inst;
+    case 'lyrics':
+    case 'song': // karaoke songs from older versions are now spoken-word lyrics
+      return Kind.lyrics;
     default:
       return Kind.script;
   }
 }
 
 String kindLabel(Kind k) => const {
-      Kind.song: 'Karaoke',
       Kind.poem: 'Poem',
       Kind.line: 'Movie line',
       Kind.script: 'Script',
+      Kind.lyrics: 'Lyrics',
       Kind.inst: 'Instrumental',
     }[k]!;
 
 double? _d(dynamic v) => v == null ? null : (v is num ? v.toDouble() : double.tryParse('$v'));
+
+/// Keys karaoke used to store; removed when an older item is loaded.
+const _karaokeKeys = ['times', 'ends', 'wt', 'timedText', 'anch', 'sttWords', 'refined', 'genText', 'vad', 'stt', 'confidence', 'offset', 'audioGuide'];
 
 class Item {
   final Map<String, dynamic> m;
@@ -38,9 +44,16 @@ class Item {
         'title': '',
         'body': '',
         'updated': DateTime.now().millisecondsSinceEpoch,
-        if (kind == Kind.song) 'times': <double?>[],
-        if (kind == Kind.song) 'offset': 0.0,
       });
+
+  /// Brings an item saved by an older version up to date (karaoke data dropped, text kept).
+  static Item migrate(Map<String, dynamic> m) {
+    if (m['kind'] == 'song') m['kind'] = 'lyrics';
+    for (final k in _karaokeKeys) {
+      m.remove(k);
+    }
+    return Item(m);
+  }
 
   String get id => '${m['id']}';
   Kind get kind => kindOf(m['kind'] as String?);
@@ -54,42 +67,77 @@ class Item {
   double get dur => _d(m['dur']) ?? 0;
   set dur(double v) => m['dur'] = v;
   String? get audioAsset => m['audio'] as String?;
-  String? get audioGuideAsset => m['audioGuide'] as String?;
   String? get url => m['url'] as String?;
-  double get offset => _d(m['offset']) ?? 0;
-  set offset(double v) => m['offset'] = v;
   int get updated => (m['updated'] as num?)?.toInt() ?? 0;
   void touch() => m['updated'] = DateTime.now().millisecondsSinceEpoch;
 
-  /// Music attached to a user song: {type:'file', path, name, dur} | {type:'inst', id} | {type:'cat', id}
+  /// Background music: {type:'file'|'inst'|'asset', path|id|asset, name}
   Map<String, dynamic>? get music => (m['music'] as Map?)?.cast<String, dynamic>();
   set music(Map<String, dynamic>? v) => m['music'] = v;
 
-  List<double?> get times => ((m['times'] as List?) ?? const []).map((v) => _d(v)).toList();
-  set times(List<double?> v) => m['times'] = v;
-  List<double> get ends => ((m['ends'] as List?) ?? const []).map((v) => _d(v) ?? 0).toList();
-  set ends(List<double> v) => m['ends'] = v;
-  List<List<WordTime>?> get wt => ((m['wt'] as List?) ?? const [])
-      .map((l) => l == null ? null : (l as List).map((w) => WordTime.fromJson(w)).toList())
-      .toList();
-  set wt(List<List<WordTime>?> v) => m['wt'] = v.map((l) => l?.map((w) => w.toJson()).toList()).toList();
-  bool get hasTiming => times.any((t) => t != null);
+  MusicSettings get musicSettings => MusicSettings((m['musicSettings'] as Map?)?.cast<String, dynamic>() ?? {});
+  set musicSettings(MusicSettings v) => m['musicSettings'] = v.m;
+  ScriptStyle get style => ScriptStyle((m['style'] as Map?)?.cast<String, dynamic>() ?? {});
+  set style(ScriptStyle v) => m['style'] = v.m;
+  PrompterSettings get prompter => PrompterSettings((m['prompter'] as Map?)?.cast<String, dynamic>() ?? {});
+  set prompter(PrompterSettings v) => m['prompter'] = v.m;
 
-  String? get timedText => m['timedText'] as String?;
-  set timedText(String? v) => m['timedText'] = v;
-  List<bool>? get anch => (m['anch'] as List?)?.map((v) => v == true).toList();
-  set anch(List<bool>? v) => m['anch'] = v;
-  List<HeardWord>? get sttWords => (m['sttWords'] as List?)?.map((w) => HeardWord.fromJson(w)).toList();
-  set sttWords(List<HeardWord>? v) => m['sttWords'] = v?.map((w) => w.toJson()).toList();
-  int get refined => (m['refined'] as num?)?.toInt() ?? 0;
-  set refined(int v) => m['refined'] = v;
-  String? get genText => m['genText'] as String?;
-  set genText(String? v) => m['genText'] = v;
-
-  List<String> get lines => lyricLines(body);
-  bool get timed => kind == Kind.song;
+  List<String> get lines => scriptLines(body);
+  List<Section> get sections => parseSections(body);
 
   Map<String, dynamic> toJson() => m;
+}
+
+/// How the music plays under a performance.
+class MusicSettings {
+  final Map<String, dynamic> m;
+  MusicSettings(this.m);
+  double _g(String k, double d) => _d(m[k]) ?? d;
+  double get volume => _g('volume', 0.8); // what the performer hears (0..1)
+  double get trimStart => _g('trimStart', 0);
+  double get trimEnd => _g('trimEnd', 0); // 0 = to the end
+  bool get loop => m['loop'] != false;
+  double get fadeIn => _g('fadeIn', 1.5);
+  double get fadeOut => _g('fadeOut', 3);
+  bool get duck => m['duck'] != false;
+  double get duckDb => _g('duckDb', 9); // how much quieter the music gets under the voice
+  double get balanceDb => _g('balanceDb', 0); // music level in the finished video, relative to the default
+  MusicSettings copyWith(Map<String, dynamic> c) => MusicSettings({...m, ...c});
+}
+
+/// How the script looks on the teleprompter (and in an optional overlay).
+class ScriptStyle {
+  final Map<String, dynamic> m;
+  ScriptStyle(this.m);
+  static const fonts = {'sans-serif': 'Sans', 'serif': 'Serif', 'sans-serif-condensed': 'Condensed', 'monospace': 'Mono', 'casual': 'Casual', 'cursive': 'Script'};
+  String get font => (m['font'] as String?) ?? 'sans-serif';
+  double get size => _d(m['size']) ?? 34;
+  int get weight => (m['weight'] as num?)?.toInt() ?? 700;
+  Color get color => Color((m['color'] as num?)?.toInt() ?? 0xFFFFFFFF);
+  Color get background => Color((m['background'] as num?)?.toInt() ?? 0xFF000000);
+  double get backgroundOpacity => _d(m['backgroundOpacity']) ?? 0.35;
+  Color get highlight => Color((m['highlight'] as num?)?.toInt() ?? 0xFFEC4899);
+  String get align => (m['align'] as String?) ?? 'center'; // left | center | right
+  double get lineHeight => _d(m['lineHeight']) ?? 1.35;
+  double get paragraphSpacing => _d(m['paragraphSpacing']) ?? 22;
+  bool get shadow => m['shadow'] != false;
+  bool get outline => m['outline'] == true;
+  ScriptStyle copyWith(Map<String, dynamic> c) => ScriptStyle({...m, ...c});
+}
+
+/// Teleprompter behaviour while rehearsing and recording.
+class PrompterSettings {
+  final Map<String, dynamic> m;
+  PrompterSettings(this.m);
+  bool get autoScroll => m['autoScroll'] != false;
+  double get speed => _d(m['speed']) ?? 6; // 1..20
+  bool get mirror => m['mirror'] == true;
+  double get readingLine => _d(m['readingLine']) ?? 0.33; // where the eyes rest, fraction of the area from the top
+  String get position => (m['position'] as String?) ?? 'center'; // top | center | bottom
+  double get areaHeight => _d(m['areaHeight']) ?? 0.55; // fraction of the screen
+  double get opacity => _d(m['opacity']) ?? 1.0;
+  bool get showWhileRecording => m['showWhileRecording'] != false;
+  PrompterSettings copyWith(Map<String, dynamic> c) => PrompterSettings({...m, ...c});
 }
 
 /// A recorded take kept as a draft until it is saved or discarded.
@@ -99,7 +147,7 @@ class Draft {
   String get id => '${m['id']}';
   String get title => (m['title'] as String?) ?? 'Take';
   String get video => '${m['video']}';
-  /// Voice recording (32-bit float WAV) and, for clean mixes, the music the singer heard.
+  /// Voice recording (32-bit float WAV) and the music heard during the take (16-bit WAV).
   String? get voice => (m['voice'] ?? m['stem']) as String?;
   String? get music => m['music'] as String?;
   String? get mix => m['mix'] as String?;

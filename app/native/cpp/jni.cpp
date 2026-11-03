@@ -47,6 +47,9 @@ JNIEXPORT void JNICALL FN(nativePause)(JNIEnv*, jobject) { Engine::get().pause()
 JNIEXPORT void JNICALL FN(nativeSeek)(JNIEnv*, jobject, jdouble s) { Engine::get().seek(s); }
 JNIEXPORT void JNICALL FN(nativeSetRate)(JNIEnv*, jobject, jdouble r) { Engine::get().setSpeed(r); }
 JNIEXPORT void JNICALL FN(nativeSetVolume)(JNIEnv*, jobject, jfloat v) { Engine::get().setVolume(v); }
+JNIEXPORT void JNICALL FN(nativeSetMusic)(JNIEnv*, jobject, jdouble start, jdouble end, jboolean loop, jdouble fadeIn, jdouble fadeOut) {
+  Engine::get().setMusic(start, end, loop, fadeIn, fadeOut);
+}
 
 JNIEXPORT jdoubleArray JNICALL FN(nativeState)(JNIEnv* env, jobject) {
   double v[8];
@@ -88,10 +91,14 @@ JNIEXPORT void JNICALL FN(nativeSetMicGain)(JNIEnv*, jobject, jfloat db) { Engin
 JNIEXPORT jdouble JNICALL FN(nativeOutputLatency)(JNIEnv*, jobject) { return Engine::get().outputLatencySec(); }
 JNIEXPORT jlong JNICALL FN(nativeMonoNs)(JNIEnv*, jobject) { return lectern::monoNs(); }
 
-JNIEXPORT jstring JNICALL FN(nativeFinalize)(JNIEnv* env, jobject, jstring voice, jstring music, jstring out, jint mode, jdouble balanceDb) {
+JNIEXPORT jstring JNICALL FN(nativeFinalize)(JNIEnv* env, jobject, jstring voice, jstring music, jstring out, jint mode, jdouble balanceDb,
+                                              jdouble fadeIn, jdouble fadeOut, jdouble duckDb) {
   lectern::FinalizeOptions o;
   o.mode = mode;
   o.musicBalanceDb = balanceDb;
+  o.musicFadeIn = fadeIn;
+  o.musicFadeOut = fadeOut;
+  o.duckDb = duckDb;
   const auto r = lectern::finalizeTake(str(env, voice), str(env, music), str(env, out), o);
   return env->NewStringUTF(lectern::toJson(r).c_str());
 }

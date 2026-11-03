@@ -18,8 +18,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Persistent queue of long audio jobs (speech recognition for lyric sync, lyrics from audio,
- * clip to lines). Jobs live in a JSON file so they survive the app being closed; results are
+ * Persistent queue of long audio jobs (Clip to lines: speech recognition that turns a movie
+ * clip into performance text). Jobs live in a JSON file so they survive the app being closed; results are
  * written to files and picked up by the app when it next runs.
  */
 object JobStore {
@@ -91,7 +91,7 @@ object JobStore {
     }
 
     @Synchronized
-    fun nextQueued(): JSONObject? = jobs.firstOrNull { it.optString("state") == "queued" }
+    fun nextQueued(): JSONObject? = jobs.firstOrNull { it.optString("state") == "queued" && it.optString("purpose", "clip") in supported }
 
     @Synchronized
     fun remove(ctx: Context, id: String) {
@@ -101,10 +101,21 @@ object JobStore {
         changed()
     }
 
+    /** Purposes still supported. Jobs left over from the removed karaoke feature never run. */
+    private val supported = setOf("clip")
+
     /** After the app process was killed mid-job: put interrupted jobs back in the queue. */
     @Synchronized
     fun recover(): Boolean {
         var any = false
+        var dropped = false
+        for (j in jobs) {
+            if (j.optString("purpose", "clip") !in supported && j.optString("state") in listOf("queued", "downloading", "running")) {
+                j.put("state", "cancelled").put("phase", "No longer available")
+                dropped = true
+            }
+        }
+        if (dropped) save()
         if (!JobService.running) {
             for (j in jobs) {
                 if (j.optString("state") in listOf("running", "downloading")) {

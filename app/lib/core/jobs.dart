@@ -1,19 +1,18 @@
-// Background jobs (transcription for lyric sync, lyrics from audio, clip to lines).
+// Background jobs (Clip to lines: turning the speech in a movie clip into performance text).
 // The work runs in an Android foreground service (native/android/kotlin/JobService.kt) with its
 // own notification, so it keeps going when the user moves around the app, leaves it, or the
 // screen turns off. Jobs and their results are stored on disk: after a restart, unfinished jobs
-// resume and finished results are applied to their song the next time the app runs.
+// resume and finished results are applied to their script the next time the app runs.
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../lyrics/retime.dart';
-import '../lyrics/timing.dart';
 import 'media.dart';
 import 'model.dart';
 import 'store.dart';
+import 'text.dart';
 
 enum JobState { queued, downloading, running, done, error, cancelled }
 
@@ -22,7 +21,7 @@ class Job {
   Job(this.m);
   String get id => '${m['id']}';
   String get itemId => '${m['itemId'] ?? ''}';
-  String get purpose => '${m['purpose'] ?? 'sync'}';
+  String get purpose => '${m['purpose'] ?? 'clip'}';
   String get title => '${m['title'] ?? 'Transcription'}';
   String get phase => '${m['phase'] ?? ''}';
   String get error => '${m['error'] ?? ''}';
@@ -180,43 +179,13 @@ class Jobs extends ChangeNotifier {
   }
 }
 
-/// Puts a transcript ({words:[{text,start,end}], vad:[[s,e]], lang}) onto an item:
-///  - purpose "sync": times the item's own lyrics (imported/pasted) word by word
-///  - purpose "generate" (or no lyrics yet): the lyrics become what was heard, with timing
-///  - purpose "clip": a movie line / script gets the spoken text (no timing needed)
+/// Puts a transcript ({words:[{text,start,end}], lang}) onto an item: the spoken text becomes
+/// the item's lines. Only older jobs had other purposes (karaoke); those are ignored.
 void applyTranscript(Item it, Map<String, dynamic> r, String purpose) {
+  if (purpose != 'clip') return;
   final words = ((r['words'] as List?) ?? [])
       .map((w) => HeardWord.fromJson(w))
       .where((w) => w.text.trim().isNotEmpty && w.start.isFinite && w.end.isFinite)
       .toList();
-  final vad = ((r['vad'] as List?) ?? []).whereType<List>().where((x) => x.length == 2).map((x) => [(x[0] as num).toDouble(), (x[1] as num).toDouble()]).toList();
-  if (purpose == 'clip') {
-    final g = wordsToLines(words);
-    it.body = g.lines.join('\n');
-    return;
-  }
-  it.sttWords = words;
-  it.m['vad'] = vad;
-  it.m['stt'] = {'lang': r['lang'], 'refined': r['refined'], 'at': DateTime.now().millisecondsSinceEpoch};
-  final lines = lyricLines(it.body);
-  if (words.isEmpty) return;
-  if (purpose == 'generate' || lines.isEmpty) {
-    final g = wordsToLines(words);
-    it.body = g.lines.join('\n');
-    it.times = g.times;
-    it.ends = g.ends;
-    it.wt = g.wt;
-    it.genText = it.body;
-    it.anch = List<bool>.filled(g.lines.length, true);
-    if (it.rawTitle.trim().isEmpty && g.lines.isNotEmpty) it.title = g.lines.first.replaceAll(RegExp(r'[,.!?]+$'), '');
-  } else {
-    final a = alignLyricsToWords(lines, words);
-    it.times = a.times;
-    it.ends = a.ends;
-    it.wt = a.wt;
-    it.anch = a.anchored;
-    it.m['confidence'] = a.confidence;
-  }
-  markTimed(it, keepAnch: true);
-  it.refined = 0;
+  it.body = wordsToLines(words).join('\n');
 }

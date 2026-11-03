@@ -1,4 +1,5 @@
-// On-device speech recognition (whisper.cpp) for AI lyric sync.
+// On-device speech recognition (whisper.cpp) for Clip to lines: the words spoken in a clip,
+// with their times, so they can be split into lines.
 // Word timing:
 //  1. Token times from DTW over Whisper's alignment cross-attention heads (whisper.cpp
 //     dtw_token_timestamps), which are much closer to when a word is actually sung than the
@@ -95,8 +96,6 @@ struct Word {
   double t0 = -1, dtw = -1;  // decoder timestamp and DTW time of the first token (diagnostics)
 };
 
-std::string lectern::vocalMapJson(const Track& t) { return vadJson(analyzeVocals(t)); }
-
 std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::string& model, std::string lang, const TranscribeOptions& opt) {
   g_progress.store(0);
   g_abort.store(false);
@@ -137,10 +136,6 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
   wp.print_special = false;
   wp.print_timestamps = false;
   wp.token_timestamps = true;
-  if (opt.legacy) {  // the previous app: one word per segment from the decoder's timestamps
-    wp.max_len = 1;
-    wp.split_on_word = true;
-  }
   wp.suppress_blank = true;
   wp.suppress_nst = true;
   wp.temperature_inc = 0.2f;
@@ -156,19 +151,10 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
   std::vector<Word> words;
   std::vector<float> noSpeech;
   const int ns = whisper_full_n_segments(ctx);
-  for (int i = 0; i < ns && opt.legacy; i++) {
-    noSpeech.push_back(whisper_full_get_segment_no_speech_prob(ctx, i));
-    Word w;
-    w.text = whisper_full_get_segment_text(ctx, i);
-    w.s = whisper_full_get_segment_t0(ctx, i) / 100.0;
-    w.e = whisper_full_get_segment_t1(ctx, i) / 100.0;
-    w.seg = i;
-    words.push_back(w);
-  }
   // Tokens of each word. whisper.cpp stamps a token's t_dtw when the alignment path moves on to
   // the next token, i.e. at the END of the token (see dtw_and_backtrace in whisper.cpp), so a
   // word's DTW time is where it ends; where it starts is worked out below.
-  for (int i = 0; i < ns && !opt.legacy; i++) {
+  for (int i = 0; i < ns; i++) {
     noSpeech.push_back(whisper_full_get_segment_no_speech_prob(ctx, i));
     const int nt = whisper_full_n_tokens(ctx, i);
     for (int j = 0; j < nt; j++) {
@@ -197,7 +183,7 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
       }
     }
   }
-  if (!opt.legacy && opt.dtw) {
+  if (opt.dtw) {
     // start of a word: where the previous word ended when the two are sung back to back;
     // after a pause, the vocal onset before the word's end; then onto the nearest onset
     double prevEnd = 0, prevStart = -1;
@@ -275,15 +261,8 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
     char num[96];
     out += i ? ",{\"text\":\"" : "{\"text\":\"";
     jsonEscape(out, kept[i].text);
-    if (opt.debug) {
-      char dbg[160];
-      std::snprintf(dbg, sizeof dbg, "\",\"start\":%.3f,\"end\":%.3f,\"t0\":%.3f,\"dtw\":%.3f,\"raw\":%.3f,\"seg\":%d}", se[i].first, se[i].second,
-                    kept[i].t0, kept[i].dtw, kept[i].s, kept[i].seg);
-      out += dbg;
-    } else {
-      std::snprintf(num, sizeof num, "\",\"start\":%.3f,\"end\":%.3f}", se[i].first, se[i].second);
-      out += num;
-    }
+    std::snprintf(num, sizeof num, "\",\"start\":%.3f,\"end\":%.3f}", se[i].first, se[i].second);
+    out += num;
   }
   char tail[160];
   std::snprintf(tail, sizeof tail, "],\"refined\":%d,\"dropped\":%d,\"lang\":\"", moved, int(clean.size() - kept.size()));

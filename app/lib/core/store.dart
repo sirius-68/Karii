@@ -28,22 +28,18 @@ class Store extends ChangeNotifier {
   Timer? _saveT;
 
   static const defaults = <String, dynamic>{
-    'karVol': 0.8,
     'bedVol': 70,
     'micGain': 0.0,
     'noiseCancel': false,
     'echoCancel': 'auto',
-    'speakerMusic': 'acoustic',
-    'guide': true,
+    'speakerMusic': 'clean',
+    'sttModel': 'base',
+    'sttLanguage': 'auto',
     'countdown': 3,
     'textSize': 34.0,
     'speed': 6,
     'facing': 'front',
     'mirrorCam': true,
-    'lyrShow': true,
-    'sttModel': 'base',
-    'sttLanguage': 'auto',
-    'tapLat': 0.08,
     'bed': null,
     'saveToGallery': true,
   };
@@ -64,8 +60,12 @@ class Store extends ChangeNotifier {
     if (await f.exists()) {
       try {
         final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
-        items.addAll(((j['items'] as List?) ?? []).map((e) => Item((e as Map).cast<String, dynamic>())));
+        items.addAll(((j['items'] as List?) ?? []).map((e) => Item.migrate((e as Map).cast<String, dynamic>())));
         settings.addAll(((j['settings'] as Map?) ?? {}).cast<String, dynamic>());
+        // settings that only karaoke used
+        for (final k in const ['karVol', 'guide', 'tapLat', 'lyrShow']) {
+          settings.remove(k);
+        }
         drafts.addAll(((j['drafts'] as List?) ?? []).map((e) => Draft((e as Map).cast<String, dynamic>())));
         recs.addAll(((j['recs'] as List?) ?? []).map((e) => Rec((e as Map).cast<String, dynamic>())));
         recents.addAll(((j['recents'] as List?) ?? []).map((e) => '$e'));

@@ -107,6 +107,15 @@ class Player {
   void setSpeed(double s);
   double speed() const { return speed_.load(); }
   void setVolume(float v) { volTarget_.store(std::max(0.f, std::min(1.5f, v))); }
+  // Background music: play only [start, end) of the track (end <= 0: to the end), optionally
+  // looping it (with a short crossfade-free micro fade at the seam so there's no click), with a
+  // fade-in at the start and a fade-out before the end (when not looping).
+  void setRegion(double startSec, double endSec);
+  void setLoop(bool on) { loop_.store(on); }
+  void setFades(double inSec, double outSec) { fadeIn_.store(std::max(0.0, inSec)); fadeOut_.store(std::max(0.0, outSec)); }
+  double regionStart() const { return regionStart_.load(); }
+  double regionEnd() const;  // seconds
+  int loops() const { return loops_.load(); }
   double duration() const;
   bool playing() const { return playing_.load(); }
   // Called before rendering into a (new) stream at outRate; frame counting restarts at 0.
@@ -139,6 +148,9 @@ class Player {
   std::atomic<float> volTarget_{0.8f};
   std::atomic<int> outRate_{48000};
   std::atomic<double> renderedPos_{0};
+  std::atomic<double> regionStart_{0}, regionEnd_{0}, fadeIn_{0}, fadeOut_{0};
+  std::atomic<bool> loop_{false};
+  std::atomic<int> loops_{0};
   // audio thread state
   double srcPos_ = 0;  // source frames
   float vol_ = 0.8f;
@@ -253,12 +265,16 @@ struct FinalizeOptions {
   double targetLufs = -14;    // integrated loudness of the result
   double ceilingDb = -1;      // true-peak ceiling (dBTP)
   double maxGainDb = 30;      // never amplify more than this (keeps room noise down)
+  double musicFadeIn = 0;     // seconds, at the start of the take
+  double musicFadeOut = 0;    // seconds, at the end of the take
+  double duckDb = 0;          // lower the music this much while the voice is heard (0 = off)
 };
 struct FinalizeResult {
   bool ok = false;
-  double voiceLufs = -120, musicLufs = -120, outLufs = -120, truePeakDb = -120, gainDb = 0, seconds = 0;
+  double voiceLufs = -120, musicLufs = -120, outLufs = -120, truePeakDb = -120, gainDb = 0, seconds = 0, duckMinDb = 0;
   std::string error;
 };
+std::vector<float> musicEnvelope(const float* voice, int64_t n, int fs, const FinalizeOptions& o);
 FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musicWav, const std::string& outWav, const FinalizeOptions& o);
 std::string toJson(const FinalizeResult& r);
 

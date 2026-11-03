@@ -283,12 +283,6 @@ class Engine extends ChangeNotifier {
     return route;
   }
 
-  /// Where the voice is in a song: [start, end] regions (seconds).
-  Future<List<List<double>>> analyzeVocals({String? asset, String? path, String? url}) async {
-    final s = await _ch.invokeMethod<String>('analyzeVocals', {'asset': asset, 'path': path, 'url': url});
-    return ((jsonDecode(s ?? '[]') as List).map((r) => [((r as List)[0] as num).toDouble(), (r[1] as num).toDouble()])).toList();
-  }
-
   // ---------------------------------------------------------------- system helpers
   Future<bool> requestPermissions(List<String> perms) async => (await _ch.invokeMethod<bool>('permissions', {'perms': perms})) ?? false;
   Future<void> keepAwake(bool on) => _ch.invokeMethod('keepAwake', {'on': on});

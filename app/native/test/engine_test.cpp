@@ -495,6 +495,145 @@ static void testVocals() {
   check(w[2].first == 13.0 && w[1].first == 12.45, "correct words untouched", "%.0f moved (expected %.0f)", double(moved), 2);
 }
 
+
+// ---------------------------------------------------------------- 7. background music: trim, loop, fades
+static void testMusicRegion() {
+  std::printf("\n7. Background music: trim, loop seam, fades, timeline across loops\n");
+  const int rate = 48000;
+  // a loud 220 Hz tone: a jump in the waveform at a seam would be a click
+  auto t = sineTrack(44100, 20, 220, 0.6);
+  Player p;
+  p.prepare(rate);
+  p.setTrack(t);
+  p.setVolume(1);
+  p.setRegion(4.0, 9.0);  // 5 s of the track
+  p.setLoop(true);
+  p.setFades(1.0, 0);
+  p.play();
+  std::vector<float> out, block(2 * 1024);
+  StreamClock clk;
+  clk.reset(rate);
+  int64_t f = 0;
+  double maxStep = 0, maxPosErr = 0;
+  float prev = 0;
+  // 32 s of output: 6 loops
+  while (f < int64_t(32.0 * rate)) {
+    p.render(block.data(), 1024, f);
+    for (int i = 0; i < 1024; i++) {
+      const float x = block[size_t(i) * 2];
+      if (f + i > rate * 2) maxStep = std::max(maxStep, double(std::fabs(x - prev)));
+      prev = x;
+      out.push_back(x);
+    }
+    // timeline: heard position must follow the loop (track time = 4 + (t mod 5))
+    for (int k = 0; k < 1024; k += 256) {
+      const double fr = double(f + k);
+      const double want = 4.0 + std::fmod(fr / rate, 5.0);
+      const double got = p.posAtOutFrame(fr);
+      double e = std::fabs(got - want);
+      e = std::min(e, std::fabs(e - 5.0));  // exactly at a seam either side is right
+      maxPosErr = std::max(maxPosErr, e);
+    }
+    f += 1024;
+  }
+  // a 220 Hz sine at 0.6 changes by at most 2*pi*220/48000*0.6 = 0.0173 per sample
+  check(maxStep < 0.02, "no click at loop seams (largest sample step)", "%.4f (max %.3f)", maxStep, 0.02);
+  check(maxPosErr < 0.001, "playback clock follows the loop", "%.5f s (tol %.3f)", maxPosErr, 0.001);
+  check(p.loops() == 6, "loops in 32 s of a 5 s region", "%.0f (want %.0f)", p.loops(), 6);
+  // fade-in: level at 0.25 s is well under the level at 2 s, and smooth
+  auto rmsAt = [&](double a, double b) {
+    double s2 = 0;
+    for (int64_t i = int64_t(a * rate); i < int64_t(b * rate); i++) s2 += double(out[size_t(i)]) * out[size_t(i)];
+    return std::sqrt(s2 / ((b - a) * rate));
+  };
+  const double early = rmsAt(0.20, 0.30), full = rmsAt(2.0, 2.5);
+  check(early < full * 0.3, "fade-in at the start of the region", "%.2f of full level (max %.1f)", early / full, 0.3);
+  check(std::fabs(rmsAt(5.5, 6.0) / full - 1) < 0.02, "no fade-in again on later loops", "%.3f of full (tol %.2f)", rmsAt(5.5, 6.0) / full, 0.02);
+  // no loop: fade out and stop at the region end
+  Player q;
+  q.prepare(rate);
+  q.setTrack(t);
+  q.setVolume(1);
+  q.setRegion(2.0, 6.0);
+  q.setLoop(false);
+  q.setFades(0, 1.0);
+  q.play();
+  std::vector<float> o2;
+  int64_t g = 0;
+  while (q.playing() && g < rate * 10) {
+    q.render(block.data(), 512, g);
+    for (int i = 0; i < 512; i++) o2.push_back(block[size_t(i) * 2]);
+    g += 512;
+  }
+  const double secs = double(g) / rate;
+  check(std::fabs(secs - 4.0) < 0.02, "trimmed region plays for its length", "%.3f s (want 4.0 ±%.2f)", secs, 0.02);
+  double tail = 0;
+  for (size_t i = o2.size() - 480; i < o2.size(); i++) tail = std::max(tail, double(std::fabs(o2[i])));
+  check(tail < 0.01, "faded out at the end (last 10 ms)", "peak %.4f (max %.2f)", tail, 0.01);
+}
+
+// ---------------------------------------------------------------- 8. ducking under the voice
+static void testDucking() {
+  std::printf("\n8. Music ducking under the voice (offline mix)\n");
+  const int fs = 48000;
+  const double secs = 30;
+  const int64_t n = int64_t(secs * fs);
+  // voice: speech-like bursts 4-9 s, 12-12.6 s (a short phrase), 16-24 s with small pauses
+  std::vector<float> voice(static_cast<size_t>(n), 0.f);
+  std::mt19937 rng(2);
+  std::normal_distribution<float> nz(0, 1);
+  auto speaking = [](double t) {
+    if (t >= 4 && t < 9) return std::fmod(t, 0.5) < 0.42;    // words with 80 ms gaps
+    if (t >= 12 && t < 12.6) return true;
+    if (t >= 16 && t < 24) return std::fmod(t, 1.0) < 0.85;  // 150 ms breaths
+    return false;
+  };
+  for (int64_t i = 0; i < n; i++) {
+    const double t = double(i) / fs;
+    voice[size_t(i)] = 0.0005f * nz(rng) + (speaking(t) ? float(0.15 * std::sin(2 * M_PI * 180 * t) + 0.05 * std::sin(2 * M_PI * 540 * t)) : 0.f);
+  }
+  FinalizeOptions o;
+  o.mode = 2;
+  o.duckDb = 9;
+  o.musicFadeIn = 2;
+  o.musicFadeOut = 3;
+  const std::vector<float> env = musicEnvelope(voice.data(), n, fs, o);
+  auto db = [&](double t) { return 20 * std::log10(std::max(1e-6f, env[size_t(t * fs)])); };
+  check(std::fabs(db(7.0) + 9) < 1.0, "music lowered while speaking", "%.2f dB (want -9 ±%.0f)", db(7.0), 1.0);
+  check(std::fabs(db(20.5) + 9) < 1.0, "stays down through short breaths (no pumping)", "%.2f dB (want -9 ±%.0f)", db(20.5), 1.0);
+  check(db(11.5) > -1.0, "back up in a long pause", "%.2f dB (want > %.0f)", db(11.5), -1.0);
+  check(db(3.97) < -0.5, "starts lowering just before the voice comes in", "%.2f dB at 3.97 s (want < %.1f)", db(3.97), -0.5);
+  // smoothness: largest change in any 10 ms
+  double worst = 0;
+  for (int64_t i = fs; i + fs / 100 < n - int64_t(4 * fs); i += fs / 100) {
+    const double a = 20 * std::log10(std::max(1e-6f, env[size_t(i)])), b = 20 * std::log10(std::max(1e-6f, env[size_t(i + fs / 100)]));
+    worst = std::max(worst, std::fabs(a - b));
+  }
+  check(worst < 1.0, "smooth: largest gain change in 10 ms", "%.2f dB (max %.1f)", worst, 1.0);
+  check(env[0] < 0.01 && db(2.5) > -0.5, "fades in over the first 2 s", "%.3f at 0 s (max %.2f)", env[0], 0.01);
+  check(env[size_t(n - 1)] < 0.01, "fades out at the end", "%.3f (max %.2f)", env[size_t(n - 1)], 0.01);
+  // full mix through the limiter: still -14 LUFS and no peak over -1 dBTP
+  const std::string vp = tmp("lectern_dv.wav"), mp = tmp("lectern_dm.wav"), op = tmp("lectern_do.wav");
+  {
+    std::FILE* f = std::fopen(vp.c_str(), "wb");
+    writeWavHeader(f, 1, fs, 0);
+    std::fwrite(voice.data(), 4, voice.size(), f);
+    finishWav(f, 1, fs);
+    std::vector<int16_t> m(static_cast<size_t>(n) * 2);
+    for (int64_t i = 0; i < n; i++) {
+      const double t = double(i) / fs;
+      m[size_t(i) * 2] = m[size_t(i) * 2 + 1] = int16_t(std::lrint(9000 * (std::sin(2 * M_PI * 110 * t) + 0.5 * std::sin(2 * M_PI * 330 * t))));
+    }
+    std::FILE* g = std::fopen(mp.c_str(), "wb");
+    writeWavHeader(g, 2, fs, 0, false);
+    std::fwrite(m.data(), 2, m.size(), g);
+    finishWav(g, 2, fs, false);
+  }
+  const FinalizeResult r = finalizeTake(vp, mp, op, o);
+  check(r.ok && std::fabs(r.outLufs + 14) < 1.0, "ducked mix loudness", "%.2f LUFS (target -14 ±%.0f)", r.outLufs, 1.0);
+  check(r.truePeakDb <= -0.95, "ducked mix true peak", "%.2f dBTP (max %.1f)", r.truePeakDb, -1.0);
+}
+
 int main() {
   testPlaybackRate();
   testClock();
@@ -503,6 +642,8 @@ int main() {
   testLoudness();
   testNoiseCancel();
   testVocals();
+  testMusicRegion();
+  testDucking();
   std::printf("\n%d passed, %d failed\n", passes, fails);
   return fails ? 1 : 0;
 }

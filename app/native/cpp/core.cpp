@@ -45,6 +45,9 @@ void Player::setTrack(std::shared_ptr<Track> t) {
   playing_.store(false);
   if (t) std::atomic_store(&kernel_, kernelFor(double(t->rate) / outRate_.load() * speed_.load()));
   std::atomic_store(&track_, t);
+  regionStart_.store(0);
+  regionEnd_.store(0);
+  loops_.store(0);
   seekTo_.store(0.0);
   renderedPos_.store(0);
   trackGen_.fetch_add(1);
@@ -59,16 +62,33 @@ double Player::duration() const {
   return t && t->rate > 0 ? double(t->frames) / t->rate : 0;
 }
 
+double Player::regionEnd() const {
+  const double d = duration(), e = regionEnd_.load();
+  return e > 0 && e < d ? e : d;
+}
+
+void Player::setRegion(double startSec, double endSec) {
+  const double d = duration();
+  startSec = std::max(0.0, std::min(startSec, d));
+  if (endSec > 0 && endSec <= startSec + 0.25) endSec = std::min(d, startSec + 0.25);
+  regionStart_.store(startSec);
+  regionEnd_.store(endSec > 0 ? std::min(endSec, d) : 0);
+}
+
 void Player::play() {
   auto t = std::atomic_load(&track_);
   if (!t || t->frames == 0) return;
-  if (renderedPos_.load() >= duration() - 0.02 && seekTo_.load() < 0) seekTo_.store(0.0);
+  const double p = renderedPos_.load();
+  if ((p >= regionEnd() - 0.02 || p < regionStart_.load()) && seekTo_.load() < 0) seekTo_.store(regionStart_.load());
   playing_.store(true);
 }
 
 void Player::pause() { playing_.store(false); }
 
-void Player::seek(double sec) { seekTo_.store(std::max(0.0, std::min(duration(), sec))); }
+void Player::seek(double sec) {
+  loops_.store(0);
+  seekTo_.store(std::max(regionStart_.load(), std::min(regionEnd(), sec)));
+}
 
 void Player::setSpeed(double s) {
   s = std::max(0.25, std::min(2.0, s));
@@ -120,6 +140,17 @@ void Player::render(float* out, int n, int64_t outFrame0) {
   const double step = t ? double(t->rate) / outRate * sp : 0;
   const double spf = play ? sp / outRate : 0;
   const double rate = t ? double(t->rate) : 48000.0;
+  // region, loop and fades, in source frames
+  const double rs = t ? regionStart_.load(std::memory_order_relaxed) * rate : 0;
+  double re = t ? double(t->frames - 1) : 0;
+  if (t) {
+    const double e = regionEnd_.load(std::memory_order_relaxed);
+    if (e > 0) re = std::min(re, e * rate);
+  }
+  const bool loop = loop_.load(std::memory_order_relaxed) && re - rs > rate * 0.5;
+  const double fin = fadeIn_.load(std::memory_order_relaxed) * rate, fout = fadeOut_.load(std::memory_order_relaxed) * rate;
+  const double seam = rate * 0.006;  // 6 ms in and out at a loop seam: no click
+  if (play && srcPos_ < rs) { srcPos_ = rs; force = true; }
   if (force || play != wasPlaying_ || spf != lastSpf_ || outFrame0 - lastAnchorFrame_ > outRate / 2)
     pushAnchor(outFrame0, srcPos_ / rate, spf);
   wasPlaying_ = play;
@@ -127,13 +158,31 @@ void Player::render(float* out, int n, int64_t outFrame0) {
   for (int i = 0; i < n; i++) {
     float l = 0, r = 0;
     if (play) {
-      if (srcPos_ >= double(t->frames - 1)) {
-        play = false;
-        playing_.store(false);
-        wasPlaying_ = false;
-        pushAnchor(outFrame0 + i, srcPos_ / rate, 0);
-      } else {
+      if (srcPos_ >= re) {
+        if (loop) {
+          srcPos_ = rs + std::fmod(srcPos_ - re, re - rs);
+          loops_.fetch_add(1, std::memory_order_relaxed);
+          pushAnchor(outFrame0 + i, srcPos_ / rate, spf);  // the timeline jumps back here
+        } else {
+          play = false;
+          playing_.store(false);
+          wasPlaying_ = false;
+          pushAnchor(outFrame0 + i, srcPos_ / rate, 0);
+        }
+      }
+      if (play) {
         k->stereo(t->pcm.data(), t->frames, srcPos_, &l, &r);
+        float g = 1;
+        const bool first = loops_.load(std::memory_order_relaxed) == 0;
+        if (fin > 0 && first && srcPos_ - rs < fin) g = float((srcPos_ - rs) / fin);
+        if (!loop && fout > 0 && re - srcPos_ < fout) g = std::min(g, float((re - srcPos_) / fout));
+        if (loop) {
+          if (re - srcPos_ < seam) g = std::min(g, float((re - srcPos_) / seam));
+          if (!first && srcPos_ - rs < seam) g = std::min(g, float((srcPos_ - rs) / seam));
+        }
+        g = g * g * (3 - 2 * g);  // smoothstep: no corner at either end of a fade
+        l *= g;
+        r *= g;
         srcPos_ += step;
       }
     }
@@ -484,6 +533,67 @@ RecStats Recorder::stop() {
 static double clampGain(double db, double maxUp) { return std::max(-30.0, std::min(maxUp, db)); }
 static float dbToLin(double db) { return float(std::pow(10.0, db / 20.0)); }
 
+// Gain applied to the music over a take (per sample): fade in at the start, fade out at the end,
+// and, when ducking is on, lower under the voice. Voice activity comes from the voice recording
+// itself (30 ms RMS with hysteresis); the gain moves in dB through slow one-pole filters (attack
+// 120 ms, release 700 ms after a 300 ms hold) and starts 60 ms ahead of the voice, so it never
+// steps or pumps.
+std::vector<float> musicEnvelope(const float* voice, int64_t n, int fs, const FinalizeOptions& o) {
+  std::vector<float> env(static_cast<size_t>(n), 1.f);
+  if (n <= 0) return env;
+  const int hop = std::max(1, fs / 100);  // 10 ms frames
+  const int64_t nf = (n + hop - 1) / hop;
+  std::vector<float> duckDb(static_cast<size_t>(nf), 0.f);
+  if (o.duckDb > 0.1) {
+    std::vector<float> lvl(static_cast<size_t>(nf));
+    for (int64_t f = 0; f < nf; f++) {
+      double s = 0;
+      int c = 0;
+      for (int64_t i = std::max<int64_t>(0, f * hop - hop); i < std::min<int64_t>(n, f * hop + 2 * hop); i++) { s += double(voice[i]) * voice[i]; c++; }
+      lvl[size_t(f)] = float(10 * std::log10(s / std::max(1, c) + 1e-12));
+    }
+    std::vector<float> srt(lvl);
+    std::sort(srt.begin(), srt.end());
+    const float floorDb = srt[size_t(0.2 * (srt.size() - 1))], peakDb = srt[size_t(0.97 * (srt.size() - 1))];
+    const float on = std::max(floorDb + 10.f, peakDb - 28.f), off = on - 4.f;
+    bool active = false;
+    int hold = 0;
+    std::vector<uint8_t> act(static_cast<size_t>(nf), 0);
+    for (int64_t f = 0; f < nf; f++) {
+      if (lvl[size_t(f)] > on) { active = true; hold = 30; }
+      else if (lvl[size_t(f)] < off) { if (hold > 0) hold--; else active = false; }
+      act[size_t(f)] = active ? 1 : 0;
+    }
+    const int look = 6;  // start lowering 60 ms before the voice comes in
+    for (int64_t f = 0; f < nf; f++) {
+      bool a = act[size_t(f)];
+      for (int k = 1; k <= look && !a && f + k < nf; k++) a = act[size_t(f + k)];
+      duckDb[size_t(f)] = a ? -float(o.duckDb) : 0.f;
+    }
+    // smooth in dB: attack ~120 ms, release ~700 ms (per 10 ms frame)
+    const float ka = 1 - std::exp(-1.f / 12.f), kr = 1 - std::exp(-1.f / 70.f);
+    float g = 0;
+    for (int64_t f = 0; f < nf; f++) {
+      const float t = duckDb[size_t(f)];
+      g += (t - g) * (t < g ? ka : kr);
+      duckDb[size_t(f)] = g;
+    }
+  }
+  const double fi = std::max(0.0, o.musicFadeIn) * fs, fo = std::max(0.0, o.musicFadeOut) * fs;
+  for (int64_t i = 0; i < n; i++) {
+    // interpolate the 10 ms frames so the gain moves every sample
+    const double fx = double(i) / hop;
+    const int64_t f0 = std::min<int64_t>(nf - 1, int64_t(fx));
+    const int64_t f1 = std::min<int64_t>(nf - 1, f0 + 1);
+    const float d = duckDb[size_t(f0)] + (duckDb[size_t(f1)] - duckDb[size_t(f0)]) * float(fx - double(f0));
+    float g = dbToLin(d);
+    if (fi > 0 && i < fi) { const float x = float(i / fi); g *= x * x * (3 - 2 * x); }
+    if (fo > 0 && n - i < fo) { const float x = float((n - i) / fo); g *= x * x * (3 - 2 * x); }
+    env[size_t(i)] = g;
+  }
+  return env;
+}
+
 FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musicWav, const std::string& outWav, const FinalizeOptions& o) {
   FinalizeResult res;
   Wav v;
@@ -528,6 +638,14 @@ FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musi
     const double gv = res.voiceLufs > -70 ? clampGain(-16 - res.voiceLufs, o.maxGainDb) : 0;
     const double gm = res.musicLufs > -70 ? clampGain(-16 - 4 + o.musicBalanceDb - res.musicLufs, 24) : 0;
     const float a = dbToLin(gv), b = dbToLin(gm);
+    // music envelope over the take: fade in, fade out, and ducking under the voice
+    const std::vector<float> env = musicEnvelope(voice.data(), n, fs, o);
+    for (int64_t i = 0; i < n; i++) { ml[size_t(i)] *= env[size_t(i)]; mr[size_t(i)] *= env[size_t(i)]; }
+    if (!env.empty()) {
+      float lo = 1;
+      for (float g : env) lo = std::min(lo, g);
+      res.duckMinDb = 20 * std::log10(std::max(lo, 1e-6f));
+    }
     for (int64_t i = 0; i < n; i++) {
       L[size_t(i)] = voice[size_t(i)] * a + ml[size_t(i)] * b;
       R[size_t(i)] = voice[size_t(i)] * a + mr[size_t(i)] * b;
@@ -603,8 +721,8 @@ FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musi
 std::string toJson(const FinalizeResult& r) {
   char b[512];
   std::snprintf(b, sizeof b,
-                "{\"ok\":%s,\"voiceLufs\":%.2f,\"musicLufs\":%.2f,\"outLufs\":%.2f,\"truePeak\":%.2f,\"gain\":%.2f,\"seconds\":%.3f,\"error\":\"%s\"}",
-                r.ok ? "true" : "false", r.voiceLufs, r.musicLufs, r.outLufs, r.truePeakDb, r.gainDb, r.seconds, r.error.c_str());
+                "{\"ok\":%s,\"voiceLufs\":%.2f,\"musicLufs\":%.2f,\"outLufs\":%.2f,\"truePeak\":%.2f,\"gain\":%.2f,\"seconds\":%.3f,\"duckMin\":%.2f,\"error\":\"%s\"}",
+                r.ok ? "true" : "false", r.voiceLufs, r.musicLufs, r.outLufs, r.truePeakDb, r.gainDb, r.seconds, r.duckMinDb, r.error.c_str());
   return b;
 }
 

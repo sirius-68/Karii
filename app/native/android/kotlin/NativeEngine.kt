@@ -29,9 +29,9 @@ object NativeEngine {
     external fun nativeSetMicGain(db: Float)
     external fun nativeOutputLatency(): Double
     external fun nativeMonoNs(): Long
-    external fun nativeFinalize(voice: String, music: String, out: String, mode: Int, balanceDb: Double): String
+    external fun nativeFinalize(voice: String, music: String, out: String, mode: Int, balanceDb: Double, fadeIn: Double, fadeOut: Double, duckDb: Double): String
+    external fun nativeSetMusic(start: Double, end: Double, loop: Boolean, fadeIn: Double, fadeOut: Double)
     external fun nativeTranscribe(model: String, buf: ByteBuffer, frames: Long, channels: Int, rate: Int, language: String): String
     external fun nativeTranscribeProgress(): Int
     external fun nativeTranscribeCancel()
-    external fun nativeAnalyzeVocals(buf: ByteBuffer, frames: Long, channels: Int, rate: Int): String
 }

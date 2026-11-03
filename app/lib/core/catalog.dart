@@ -1,5 +1,5 @@
-// Built-in catalogue (public-domain karaoke songs with pre-rendered arrangements, original
-// poems and movie lines, Tanner Helland instrumentals).
+// Built-in catalogue: original poems and movie lines to perform, and Tanner Helland
+// instrumentals (CC BY 4.0) to use as background music.
 import 'dart:convert';
 
 import 'package:flutter/services.dart';

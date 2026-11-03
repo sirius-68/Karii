@@ -32,6 +32,11 @@ class Engine {
   void seek(double sec) { player_.seek(sec); }
   void setSpeed(double s) { player_.setSpeed(s); }
   void setVolume(float v) { player_.setVolume(v); }
+  void setMusic(double start, double end, bool loop, double fadeIn, double fadeOut) {
+    player_.setRegion(start, end);
+    player_.setLoop(loop);
+    player_.setFades(fadeIn, fadeOut);
+  }
   double position();  // seconds into the track that the listener hears now
   double duration() const { return player_.duration(); }
   bool playing() const { return player_.playing(); }
