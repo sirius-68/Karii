@@ -9,6 +9,7 @@
 //     ("thank you for watching") is dropped.
 
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -186,15 +187,20 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
         words.push_back(w);
       } else {
         words.back().text += txt;
-        if (d.t_dtw >= 0) words.back().e = std::max(words.back().e, d.t_dtw / 100.0);
-        else words.back().e = std::max(words.back().e, d.t1 / 100.0);
+        // punctuation tokens get late alignment times: they don't move the word's end
+        bool letters = false;
+        for (unsigned char ch : txt) letters = letters || std::isalnum(ch) || ch >= 0x80;
+        if (letters) {
+          if (d.t_dtw >= 0) words.back().e = std::max(words.back().e, d.t_dtw / 100.0);
+          else words.back().e = std::max(words.back().e, d.t1 / 100.0);
+        }
       }
     }
   }
   if (!opt.legacy && opt.dtw) {
     // start of a word: where the previous word ended when the two are sung back to back;
     // after a pause, the vocal onset before the word's end; then onto the nearest onset
-    double prevEnd = 0;
+    double prevEnd = 0, prevStart = -1;
     for (auto& w : words) {
       if (w.dtw < 0) { prevEnd = w.e; continue; }  // no DTW time: keep the decoder's
       int syl = 0;
@@ -213,10 +219,14 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
         const double on = vmap.strongestOnset(w.e - 2 * d, w.e - 0.05, 3.0);
         if (!std::isnan(on) && on >= prevEnd) st = on;
       }
+      // inside a phrase the decoder's own timestamp is usually the more precise one; at the start
+      // of its 30 s window it can be off by seconds, so it is only taken when the two agree
+      if (w.t0 >= 0 && std::fabs(w.t0 - st) < 1.0 && w.t0 > prevStart + 0.05 && w.t0 < w.e - 0.05) st = w.t0;
       const double sn = vmap.strongestOnset(st - 0.2, st + 0.2, 3.0);
       if (!std::isnan(sn) && sn >= prevEnd - 0.05 && sn < w.e - 0.05) st = sn;
       w.s = st;
       prevEnd = w.e;
+      prevStart = st;
     }
   }
   const int detected = whisper_full_lang_id(ctx);
