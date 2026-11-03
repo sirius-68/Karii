@@ -723,13 +723,22 @@ int refineStarts(std::vector<std::pair<double, double>>& w, const VocalMap& v) {
   if (v.regions.empty()) return 0;
   int moved = 0;
   for (size_t i = 0; i < w.size(); i++) {
-    const double s = w[i].first;
+    const double s = w[i].first, e = w[i].second;
     if (v.vocalAt(s) || v.vocalAt(s + 0.12)) continue;
     const double nx = i + 1 < w.size() ? w[i + 1].first : s + 30;
+    // the voice starts inside the word: the word starts there
+    const double inside = v.nextOnset(s, e - 0.05);
+    if (!std::isnan(inside)) {
+      w[i].first = inside;
+      moved++;
+      continue;
+    }
+    // the whole word sits where nobody sings (intro, break): move it to the next vocal onset
+    if (v.vocalAt(e - 0.05)) continue;
     const double t = v.nextOnset(s, nx - 0.05);
     if (std::isnan(t)) continue;
     w[i].first = t;
-    w[i].second = std::max(w[i].second, std::min(nx - 0.01, t + 0.15));
+    w[i].second = std::max(t + 0.08, std::min(nx - 0.01, t + (e - s)));
     moved++;
   }
   return moved;

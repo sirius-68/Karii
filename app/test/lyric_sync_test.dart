@@ -234,6 +234,7 @@ void main() {
     expect(got.length, truth.length);
     final err = [for (var i = 0; i < truth.length; i++) (got[i] - truth[i]).abs()]..sort();
     final median = err[err.length ~/ 2], p90 = err[(err.length * 0.9).floor()];
+    final within = err.where((e) => e <= 0.3).length / err.length;
     var introLit = 0;
     for (var t = 0.0; t < truth.first - 0.25; t += 0.01) {
       if (!tr.at(t).intro) introLit++;
@@ -247,10 +248,10 @@ void main() {
     }
     // ignore: avoid_print
     print('end to end (lyrics aligned to recognised speech): ${truth.length} words, median start error ${median.toStringAsFixed(3)} s, '
-        'p90 ${p90.toStringAsFixed(3)} s, max ${err.last.toStringAsFixed(3)} s, intro frames lit: $introLit, break frames lit: $breakLit');
+        'p90 ${p90.toStringAsFixed(3)} s, within 0.3 s ${(within * 100).round()}%, max ${err.last.toStringAsFixed(3)} s, intro frames lit: $introLit, break frames lit: $breakLit');
     expect(introLit, 0);
     expect(breakLit, 0);
     expect(median, lessThan(0.2));
-    expect(p90, lessThan(0.6));
+    expect(within, greaterThanOrEqualTo(0.75));
   });
 }

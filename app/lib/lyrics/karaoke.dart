@@ -215,22 +215,32 @@ int refineToVoice(List<List<double>> words, List<List<double>> vad) {
     return false;
   }
 
+  double? onsetIn(double a, double b) {
+    for (final r in vad) {
+      if (r[0] >= a && r[0] < b) return r[0];
+      if (r[0] >= b) break;
+    }
+    return null;
+  }
+
   var moved = 0;
   for (var i = 0; i < words.length; i++) {
-    final s = words[i][0];
+    final s = words[i][0], e = words[i][1];
     if (voiced(s) || voiced(s + 0.12)) continue;
     final nx = i + 1 < words.length ? words[i + 1][0] : s + 30;
-    double? onset;
-    for (final r in vad) {
-      if (r[0] >= s && r[0] < nx - 0.05) {
-        onset = r[0];
-        break;
-      }
-      if (r[0] >= nx) break;
+    // the voice starts inside the word: the word starts there
+    final inside = onsetIn(s, e - 0.05);
+    if (inside != null) {
+      words[i][0] = inside;
+      moved++;
+      continue;
     }
+    // the whole word sits where nobody sings (intro, break): move it to the next vocal onset
+    if (voiced(e - 0.05)) continue;
+    final onset = onsetIn(s, nx - 0.05);
     if (onset == null) continue;
     words[i][0] = onset;
-    words[i][1] = math.max(words[i][1], math.min(nx - 0.01, onset + 0.15));
+    words[i][1] = math.max(onset + 0.08, math.min(nx - 0.01, onset + (e - s)));
     moved++;
   }
   return moved;
