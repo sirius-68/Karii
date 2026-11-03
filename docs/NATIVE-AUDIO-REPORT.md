@@ -147,9 +147,45 @@ See the commit list on `main` from "Audio engine rebuild…" onwards:
 - CI: `.github/workflows/android-native.yml` runs every suite and publishes `TEST-REPORT.md`
   next to the APK.
 
-## 5. Tests
+## 5. Tests and results
 
-Every push runs four suites; results are in `TEST-REPORT.md` on the `apk` branch.
+Every push runs four suites on the build machine. Full output is in `TEST-REPORT.md` on the
+`apk` branch. The results below are from commit a156f66; all four suites pass.
+
+**Audio engine** (C++, 32 checks):
+| Check | Result | Tolerance | Previous app |
+|---|---|---|---|
+| 1 kHz tone, 44.1 kHz song, 48 kHz output | 1000.000 Hz | ±0.5 Hz | |
+| Same after the output switches to 44.1 kHz | 1000.000 Hz | ±0.5 Hz | 918.75 Hz (8.1 % slow) |
+| Interpolation noise/distortion | SNR 86.6 dB | > 80 dB | |
+| 10 s song plays for | 10.005 s | ±0.02 s | |
+| Clock vs audio heard, 7 min, 180 ms Bluetooth latency, seeks, pause, 0.75x | max 1.5 ms, mean 0.3 ms | < 3 ms | |
+| Recording 5 and 8 min, Bluetooth bursts, mic clock ±60/−120 ppm, late callbacks | 0 samples inserted or dropped | 0 | |
+| Voice vs music in the clean mix, worst click | 0.4 ms | < 2 ms | 16 ms (noise-canceller delay) |
+| Mic-only take loudness | −14.0 LUFS, −5.9 dBTP | −14 ±1, ≤ −1 dBTP | −35.6 LUFS |
+| Clean-mix take loudness | −14.0 LUFS, −3.9 dBTP | −14 ±1, ≤ −1 dBTP | −17.8 LUFS, voice 18 LU under the music |
+| Noise cancellation | −9.5 dB noise, voice ±0.01 dB | > 8 dB, ±1.5 dB | |
+| Vocal regions in a song with intro and break | starts within 20 ms | 120 ms | |
+
+**Speech timing** (whisper base on a 54 s song: 14 s intro, 12 s break with a centred lead
+synth, 45 words at known times):
+| Pipeline | Median start error | Within 0.3 s | First word | Words in intro |
+|---|---|---|---|---|
+| Previous app | 0.200 s | 68 % | −14.00 s (lit at 0:00) | 4 |
+| New | 0.040 s | 77 % | −0.02 s | 0 |
+
+**Karaoke sync** (Dart, 9 tests):
+- Intro: 0 of 2,800 frames lit before the first word.
+- 100,000 random clock readings matched a reference with 0 mismatches.
+- 7-minute song: 0.000 s drift; 100,000 frames computed in 5 ms.
+- Seeks are stateless, and pauses don't light the next line early.
+- 500 randomly broken timing sets never threw an error.
+- Generated → imported lyrics switch re-aligned correctly.
+- End to end (the recogniser's words aligned to the real lyrics): median 0.086 s, 84 % within
+  0.3 s, max 0.50 s, 0 frames lit in the intro, 0 frames lit in the break.
+
+**Background jobs** (JVM): 3 taps start 2 jobs, not 3 (duplicates are merged). After a restart
+the running job is re-queued and the finished one is kept. A failed job is retried.
 
 ## 6. Remaining limitations
 
