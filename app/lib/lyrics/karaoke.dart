@@ -101,7 +101,7 @@ class LyricTrack {
       List<WordTime> ws;
       final wordsOk = w != null && w.length == words.length && w.every((x) => ok(x.s) && ok(x.e)) && known[i] != null;
       if (wordsOk) {
-        ws = cleanWordTimes(words, w!, next);
+        ws = cleanWordTimes(words, w, next);
       } else {
         final e0 = i < ends.length && ok(ends[i]) && ends[i] > start ? ends[i] : null;
         final cap = start + math.max(1.4, lineSyllables(text[i]) * 0.38 + 0.4);
