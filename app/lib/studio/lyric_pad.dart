@@ -1,4 +1,5 @@
-// Lyric pad: write a song with syllable counts and rhymes, set the tempo, and place the lines on the beat.
+// Lyric pad: write original lyrics to perform as spoken word, with syllable counts, rhymes,
+// sections and a metronome to find the rhythm. Then perform them over your beat.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -9,8 +10,7 @@ import '../core/media.dart';
 import '../core/model.dart';
 import '../core/store.dart';
 import '../engine/engine.dart';
-import '../lyrics/retime.dart';
-import '../lyrics/timing.dart';
+import '../core/text.dart';
 import '../screens/nav.dart';
 import '../widgets/ui.dart';
 import 'beat_maker.dart';
@@ -69,8 +69,6 @@ class LyricPad extends StatefulWidget {
 class _LyricPadState extends State<LyricPad> {
   late final Item s;
   late final TextEditingController title, body;
-  double per = 2;
-  int intro = 1;
   final List<int> taps = [];
   bool metro = false;
   String rhymeWord = '';
@@ -86,7 +84,7 @@ class _LyricPadState extends State<LyricPad> {
     if (widget.item != null) {
       s = widget.item!;
     } else {
-      s = st.create(Kind.song);
+      s = st.create(Kind.lyrics);
       if (widget.beat != null) {
         s.music = {'type': 'inst', 'id': widget.beat!.id, 'name': widget.beat!.title};
         s.dur = widget.beat!.dur;
@@ -102,7 +100,6 @@ class _LyricPadState extends State<LyricPad> {
     _rt?.cancel();
     if (metro) Engine.i.pause();
     save();
-    retimeIfLyricsChanged(s);
     if (s.rawTitle.trim().isEmpty && s.body.trim().isEmpty) st.deleteItem(s);
     title.dispose();
     body.dispose();
@@ -128,8 +125,8 @@ class _LyricPadState extends State<LyricPad> {
   String get tempoSource {
     if (s.m['bpm'] != null) return beatItem?.m['bpm'] != null ? 'Set by you · overrides the beat’s tempo' : 'Set by you';
     if (beatItem?.m['bpm'] != null) return 'From your beat';
-    if (s.music != null && s.music!['type'] != 'click') return 'Set the tempo of your music so lines land on the bars';
-    return 'No beat? Lectern makes a click track so you can sing it in time.';
+    if (s.music != null && s.music!['type'] != 'none') return 'Set it to the tempo of your music';
+    return 'No beat? The metronome helps you find the rhythm of your lines.';
   }
 
   void setBpm(num v) {
@@ -217,7 +214,7 @@ class _LyricPadState extends State<LyricPad> {
   }
 
   void chooseMusic() {
-    actionSheet(context, 'Music for this song', [
+    actionSheet(context, 'Music for these lyrics', [
       for (final x in instruments())
         SheetAction(Icons.graphic_eq, x.title, () {
           s.music = {'type': 'inst', 'id': x.id, 'name': x.title};
@@ -234,79 +231,43 @@ class _LyricPadState extends State<LyricPad> {
         setState(() {});
       }),
       if (s.music != null)
-        SheetAction(Icons.close, 'No music (click track)', () {
-          s.music = null;
+        SheetAction(Icons.close, 'No music', () {
+          s.music = {'type': 'none'};
           save();
           setState(() {});
         }, danger: true),
     ]);
   }
 
-  Future<void> place() async {
-    save();
-    final lines = lyricLines(s.body);
-    if (lines.isEmpty) {
-      toast(context, 'Write some lyrics first');
-      return;
-    }
-    final bpb = beats, tempo = bpm, bar = 60 * bpb / tempo;
-    if (s.music == null || s.music!['type'] == 'click') {
-      final bars = (intro + lines.length * per + 2).ceil();
-      final file = 'click-${s.id}.wav';
-      toast(context, 'Making a click track…');
-      final dur = await clickInIsolate(tempo, bpb, bars, st.mediaPath(file));
-      s.music = {'type': 'file', 'path': st.mediaPath(file), 'name': 'Click track · $tempo BPM', 'click': true, 'bpm': tempo};
-      s.dur = dur;
-    }
-    final t0 = 0.05 + intro * bar;
-    final times = [for (var i = 0; i < lines.length; i++) double.parse((t0 + i * per * bar).toStringAsFixed(3))];
-    final ends = [
-      for (var i = 0; i < lines.length; i++) double.parse(((i + 1 < times.length ? times[i + 1] : times[i] + per * bar) - 0.1).clamp(0, times[i] + per * bar * 0.92).toStringAsFixed(3))
-    ];
-    s.times = times;
-    s.ends = ends;
-    s.wt = [for (var i = 0; i < lines.length; i++) distributeWords(lines[i], times[i], ends[i])];
-    markTimed(s);
-    s.refined = 9;
-    s.touch();
-    st.save();
-    if (!mounted) return;
-    setState(() {});
-    await actionSheet(context, 'Lines placed on the beat', [
-      SheetAction(Icons.mic_external_on, 'Sing it now', () => perform(context, s)),
-      SheetAction(Icons.check, 'Keep writing', () {}),
-    ], note: '${lines.length} lines · $tempo BPM · ${per == 0.5 ? 'half a' : per.toString().replaceAll('.0', '')} bar${per > 1 ? 's' : ''} per line');
-  }
-
   @override
   Widget build(BuildContext context) {
     final src = musicFor(s);
     final rows = body.text.split('\n');
-    final nLines = lyricLines(body.text).length;
+    final nLines = scriptLines(body.text).length;
     return Scaffold(
       appBar: AppBar(title: const Text('Lyric pad'), actions: [
         TextButton.icon(
           onPressed: () {
             save();
-            if (lyricLines(s.body).isEmpty) {
+            if (scriptLines(s.body).isEmpty) {
               toast(context, 'Write some lyrics first');
               return;
             }
             perform(context, s);
           },
-          icon: const Icon(Icons.mic_external_on, color: Colors.white),
-          label: const Text('Sing', style: TextStyle(color: Colors.white)),
+          icon: const Icon(Icons.videocam_outlined, color: Colors.white),
+          label: const Text('Perform', style: TextStyle(color: Colors.white)),
         ),
       ]),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 48), children: [
-        TextField(controller: title, onChanged: (_) => save(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700), decoration: const InputDecoration(hintText: 'Song title', border: InputBorder.none)),
+        TextField(controller: title, onChanged: (_) => save(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700), decoration: const InputDecoration(hintText: 'Title', border: InputBorder.none)),
         _card(Row(children: [
           const Icon(Icons.graphic_eq, color: C.muted),
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(src.none ? 'No beat yet' : (src.label.isEmpty ? 'Music attached' : src.label), style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text(beatItem?.m['bpm'] != null ? '${beatItem!.m['bpm']} BPM · lines snap to bars' : 'Pick a beat you made or an instrumental', style: const TextStyle(color: C.muted, fontSize: 13)),
+              Text(beatItem?.m['bpm'] != null ? '${beatItem!.m['bpm']} BPM' : 'Pick a beat you made, an instrumental or your own track', style: const TextStyle(color: C.muted, fontSize: 13)),
             ]),
           ),
           TextButton(onPressed: chooseMusic, child: const Text('Choose')),
@@ -327,7 +288,7 @@ class _LyricPadState extends State<LyricPad> {
           maxLines: null,
           minLines: 10,
           style: const TextStyle(fontSize: 17, height: 1.5),
-          decoration: const InputDecoration(hintText: 'Write one lyric line per row.\nTip: keep lines in a section to similar syllable counts.', border: InputBorder.none),
+          decoration: const InputDecoration(hintText: 'Write one line per row.\nTip: lines with similar syllable counts flow well when spoken.', border: InputBorder.none),
         ),
         if (line > 0)
           Text('Line $line · $syl syllables${rhymeWord.isNotEmpty ? ' · rhymes for “$rhymeWord”' : ''}', style: const TextStyle(color: C.muted, fontSize: 13)),
@@ -366,23 +327,6 @@ class _LyricPadState extends State<LyricPad> {
               ),
           ]),
           SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Metronome'), subtitle: const Text('Hear the tempo while you write', style: TextStyle(color: C.muted)), value: metro, onChanged: (_) => toggleMetro()),
-        ])),
-        const SizedBox(height: 20),
-        const Text('Place on the beat', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
-        _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Expanded(child: Text('Bars per line')),
-            for (final v in const [0.5, 1.0, 2.0, 4.0])
-              Padding(padding: const EdgeInsets.only(left: 6), child: Pill(v == 0.5 ? '½' : '${v.round()}', selected: per == v, onTap: () => setState(() => per = v))),
-          ]),
-          const SizedBox(height: 10),
-          Row(children: [
-            const Expanded(child: Text('Intro bars')),
-            for (final v in const [0, 1, 2, 4]) Padding(padding: const EdgeInsets.only(left: 6), child: Pill('$v', selected: intro == v, onTap: () => setState(() => intro = v))),
-          ]),
-          const SizedBox(height: 12),
-          SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: place, icon: const Icon(Icons.auto_fix_high), label: const Text('Auto-place lines'))),
-          const Padding(padding: EdgeInsets.only(top: 6), child: Text('Each line lands on a bar line, with word timing.', style: TextStyle(color: C.muted, fontSize: 12.5))),
         ])),
         const SizedBox(height: 20),
         const Text('Structure', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),

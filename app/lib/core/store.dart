@@ -28,7 +28,6 @@ class Store extends ChangeNotifier {
   Timer? _saveT;
 
   static const defaults = <String, dynamic>{
-    'bedVol': 70,
     'micGain': 0.0,
     'noiseCancel': false,
     'echoCancel': 'auto',
@@ -36,8 +35,6 @@ class Store extends ChangeNotifier {
     'sttModel': 'base',
     'sttLanguage': 'auto',
     'countdown': 3,
-    'textSize': 34.0,
-    'speed': 6,
     'facing': 'front',
     'mirrorCam': true,
     'bed': null,
@@ -65,6 +62,13 @@ class Store extends ChangeNotifier {
         // settings that only karaoke used
         for (final k in const ['karVol', 'guide', 'tapLat', 'lyrShow']) {
           settings.remove(k);
+        }
+        // settings that are now kept per project: carry the user's choice into each project
+        final ts = settings.remove('textSize'), sp = settings.remove('speed'), bv = settings.remove('bedVol');
+        for (final it in items) {
+          if (ts is num && it.m['style'] == null) it.m['style'] = {'size': ts.toDouble()};
+          if (sp is num && it.m['prompter'] == null) it.m['prompter'] = {'speed': sp.toDouble()};
+          if (bv is num && it.m['musicSettings'] == null) it.m['musicSettings'] = {'volume': (bv / 100).clamp(0.0, 1.0)};
         }
         drafts.addAll(((j['drafts'] as List?) ?? []).map((e) => Draft((e as Map).cast<String, dynamic>())));
         recs.addAll(((j['recs'] as List?) ?? []).map((e) => Rec((e as Map).cast<String, dynamic>())));

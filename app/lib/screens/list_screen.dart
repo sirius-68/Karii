@@ -12,15 +12,14 @@ class ListScreen extends StatelessWidget {
   const ListScreen({super.key, required this.kind});
   @override
   Widget build(BuildContext context) {
-    final title = const {Kind.song: 'Karaoke', Kind.poem: 'Poems', Kind.line: 'Movie lines', Kind.inst: 'Instrumentals', Kind.script: 'Scripts'}[kind]!;
+    final title = const {Kind.lyrics: 'Lyrics', Kind.poem: 'Poems', Kind.line: 'Movie lines', Kind.inst: 'Instrumentals', Kind.script: 'Scripts'}[kind]!;
     return Scaffold(
-      appBar: AppBar(title: Row(children: [Text(title), if (kind == Kind.song) const BetaTag()])),
+      appBar: AppBar(title: Text(title)),
       body: AnimatedBuilder(
         animation: Store.i,
         builder: (context, _) {
           final items = kind == Kind.inst ? instruments() : [...Catalog.i.list(kind), ...Store.i.items.where((x) => x.kind == kind)];
           return ListView(children: [
-            if (kind == Kind.song) const Padding(padding: EdgeInsets.only(top: 8), child: BetaNote()),
             for (final it in items) ItemRow(it, onTap: () => openItem(context, it), onMore: kind == Kind.inst && it.isCat ? null : () => itemMenu(context, it)),
             if (kind != Kind.inst)
               Padding(

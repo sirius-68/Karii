@@ -6,7 +6,7 @@ import '../core/media.dart';
 import '../core/model.dart';
 import '../core/store.dart';
 import '../engine/engine.dart';
-import '../lyrics/timing.dart';
+import '../core/text.dart';
 import '../widgets/ui.dart';
 import 'nav.dart';
 
@@ -94,7 +94,6 @@ class _DetailScreenState extends State<DetailScreen> {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
                     Flexible(child: Text(it.title, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700, letterSpacing: -0.5))),
-                    if (it.kind == Kind.song) const BetaTag(),
                   ]),
                   const SizedBox(height: 4),
                   Text([it.sub, if (it.dur > 0) fmtTime(it.dur), kindLabel(it.kind)].join(' · '), style: const TextStyle(color: C.muted)),
@@ -105,8 +104,8 @@ class _DetailScreenState extends State<DetailScreen> {
                       Expanded(
                         child: FilledButton.icon(
                           onPressed: () => perform(context, it),
-                          icon: Icon(it.kind == Kind.song ? Icons.mic_external_on : Icons.videocam_outlined),
-                          label: Text(it.kind == Kind.song ? 'Sing' : 'Perform'),
+                          icon: const Icon(Icons.videocam_outlined),
+                          label: const Text('Perform'),
                         ),
                       ),
                     if (hasMusic && it.kind != Kind.inst) ...[const SizedBox(width: 10), listenButton()],
@@ -115,8 +114,13 @@ class _DetailScreenState extends State<DetailScreen> {
                     IconButton(onPressed: () => Store.i.toggleLike(it.id), icon: Icon(liked ? Icons.favorite : Icons.favorite_border, color: liked ? C.brand : null)),
                     if (!it.isCat && it.kind != Kind.inst) IconButton(onPressed: () => editItem(context, it), icon: const Icon(Icons.edit_outlined)),
                   ]),
-                  if (it.kind == Kind.song) const Padding(padding: EdgeInsets.only(top: 14), child: _InlineBeta()),
                   const SizedBox(height: 18),
+                  if (it.kind != Kind.inst && it.body.trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text('${wordCount(it.body)} words · about ${fmtTime(readingSeconds(it.body).clamp(1, 1e9).toDouble())} to perform${hasMusic ? ' · with music' : ''}',
+                          style: const TextStyle(color: C.muted, fontSize: 13)),
+                    ),
                   if (it.body.trim().isNotEmpty)
                     SelectableText(it.body, style: TextStyle(fontSize: 16, height: 1.55, color: C.ink2, fontFamily: it.kind == Kind.poem ? 'serif' : null)),
                   const SizedBox(height: 40),
@@ -128,14 +132,4 @@ class _DetailScreenState extends State<DetailScreen> {
       },
     );
   }
-}
-
-class _InlineBeta extends StatelessWidget {
-  const _InlineBeta();
-  @override
-  Widget build(BuildContext context) => const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(Icons.science_outlined, size: 16, color: C.amber),
-        SizedBox(width: 8),
-        Expanded(child: Text('Karaoke is in beta, so you may run into errors while you use it.', style: TextStyle(color: C.muted, fontSize: 13))),
-      ]);
 }

@@ -1,4 +1,4 @@
-// Script writer: templates for talks, videos, toasts and monologues.
+// Templates for speeches, monologues, scenes, stories, poems and spoken-word lyrics.
 import 'package:flutter/material.dart';
 
 import '../core/model.dart';
@@ -29,6 +29,14 @@ const templates = [
       "[sit down slowly]\n\nYou want to know why I stayed? ____.\n\n[look away]\n\nEveryone thinks leaving is the brave thing. Sometimes staying is.\n\n[meet their eyes]\n\nSo no. I'm not sorry."),
   Template(Kind.poem, 'Spoken word', 'Three stanzas, a turn, a landing',
       "I used to think ____\nwas something you could ____.\n\nThen ____\nand everything I knew\ngot quieter.\n\nNow I ____.\nNow I ____.\nNow I know."),
+  Template(Kind.script, 'Short speech', 'Opening, three points, a close that lands',
+      "[Intro]\nGood evening. I'm {name}, and I want to talk about ____.\n\n[Point one]\nFirst, ____.\n\n[Point two]\nSecond, ____. [pause]\n\n[Point three]\nAnd finally, ____.\n\n[Close]\nSo the next time ____, remember: ____.\n\nThank you."),
+  Template(Kind.script, 'Storytelling', 'Set the scene, raise the stakes, turn, resolve',
+      "[Scene]\nIt was ____, and I was ____.\n\n[Stakes]\nIf ____ didn't happen by ____, then ____.\n\n[Turn]\n[lean in]\nAnd that's when ____.\n\n[Ending]\nI still think about it whenever ____."),
+  Template(Kind.line, 'Two-person scene', 'Your lines and your partner’s cues',
+      "[Scene 1]\nTHEM: ____?\nYOU: ____.\n\nTHEM: ____.\nYOU: [beat] ____.\n\n[Scene 2]\nTHEM: ____!\nYOU: [quietly] ____."),
+  Template(Kind.lyrics, 'Spoken-word lyrics', 'Verses and a hook, performed over a beat',
+      "[Verse 1]\n____\n____\n____\n____\n\n[Hook]\n____\n____\n\n[Verse 2]\n____\n____\n____\n____\n\n[Hook]\n____\n____"),
   Template(Kind.script, 'Blank script', 'Start from scratch', ''),
 ];
 
@@ -37,9 +45,9 @@ class ScriptsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Script writer')),
+      appBar: AppBar(title: const Text('Start a script')),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 32), children: [
-        const Text('Pick a template. Blanks are marked ____ and directions sit in [brackets].', style: TextStyle(color: C.muted)),
+        const Text('Pick a template. Blanks are marked ____, [Section] names sit on their own line, and [directions] inside a line show smaller on the teleprompter.', style: TextStyle(color: C.muted)),
         const SizedBox(height: 16),
         for (final t in templates)
           Padding(

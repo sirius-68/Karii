@@ -442,7 +442,7 @@ static void testNoiseCancel() {
 
 // ---------------------------------------------------------------- 6. vocal analysis
 static void testVocals() {
-  std::printf("\n6. Finding where the voice is (intro, verses, instrumental break)\n");
+  std::printf("\n6. Finding where a voice is (Clip to lines drops words imagined over music)\n");
   const int fs = 44100;
   const double secs = 40;
   const int64_t n = int64_t(secs * fs);
@@ -485,14 +485,8 @@ static void testVocals() {
     for (const auto& r : vm.regions) best = std::min(best, std::fabs(r.first - q.first));
     worst = std::max(worst, best);
   }
-  check(worst < 0.12, "every sung phrase start found", "worst %.3f s (tol %.2f)", worst, 0.12);
+  check(worst < 0.12, "every voiced phrase start found", "worst %.3f s (tol %.2f)", worst, 0.12);
   check(!vm.vocalAt(5.0) && !vm.vocalAt(10.0) && !vm.vocalAt(22.0), "intro and instrumental break not marked as voice", "%.0f %.0f", 0, 0);
-  // ASR put the first word in the intro and one word in the break; the rest are right
-  std::vector<std::pair<double, double>> w = {{0.40, 0.70}, {12.45, 12.8}, {13.0, 13.4}, {21.0, 21.3}, {26.4, 26.8}};
-  const int moved = refineStarts(w, vm);
-  check(std::fabs(w[0].first - 12.0) < 0.1, "first word moved out of the intro", "%.3f s (want 12.0 ±%.1f)", w[0].first, 0.1);
-  check(std::fabs(w[3].first - 26.0) < 0.1, "word in the instrumental break moved to the next phrase", "%.3f s (want 26.0 ±%.1f)", w[3].first, 0.1);
-  check(w[2].first == 13.0 && w[1].first == 12.45, "correct words untouched", "%.0f moved (expected %.0f)", double(moved), 2);
 }
 
 
@@ -634,6 +628,66 @@ static void testDucking() {
   check(r.truePeakDb <= -0.95, "ducked mix true peak", "%.2f dBTP (max %.1f)", r.truePeakDb, -1.0);
 }
 
+// ---------------------------------------------------------------- 9. recording over a looping music region
+static void testLoopRecording() {
+  std::printf("\n9. Recording over looped background music (clean mix stem)\n");
+  const int rate = 48000;
+  auto t = sineTrack(44100, 12, 220, 0.6);
+  Player p;
+  p.prepare(rate);
+  p.setTrack(t);
+  p.setVolume(1);
+  p.setRegion(2.0, 5.0);
+  p.setLoop(true);
+  p.setFades(0.5, 0);
+  StreamClock out;
+  out.reset(rate);
+  Recorder rec;
+  RecConfig cfg;
+  cfg.mode = 2;
+  rec.configure(rate, cfg);
+  const std::string vw = tmp("lectern_lv.wav"), mw = tmp("lectern_lm.wav");
+  MusicRegion reg;
+  reg.start = p.regionStart();
+  reg.end = p.regionEnd();
+  reg.loop = true;
+  rec.start(vw, mw, t, reg);
+  p.play();
+  const int64_t t0 = 5000000000LL;
+  const double lat = 0.02;
+  std::vector<float> ob(2 * 192), ib(192, 0.f);
+  int64_t of = 0, inf = 0;
+  while (inf < int64_t(14.0 * rate)) {
+    // output runs a block ahead of the input
+    while (of <= inf + 192) {
+      p.render(ob.data(), 192, of);
+      of += 192;
+      out.setFrames(of);
+      out.setTimestamp(of - 192, t0 + int64_t((double(of - 192) / rate + lat) * 1e9));
+    }
+    const int64_t capNs = t0 + int64_t(double(inf) / rate * 1e9);
+    bool mp = false;
+    const double mpos = p.posAtOutFrame(out.frameAt(capNs, true), &mp);
+    rec.onInput(ib.data(), 192, capNs, mp ? mpos : NAN, 1.0);
+    inf += 192;
+    while (rec.backlog() > (1 << 19)) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  const RecStats st = rec.stop();
+  Wav mu;
+  readWav(mw, &mu);
+  double maxStep = 0, minRms = 1;
+  for (int64_t i = rate; i + 1 < mu.frames(); i++) maxStep = std::max(maxStep, double(std::fabs(mu.data[size_t(i + 1) * 2] - mu.data[size_t(i) * 2])));
+  for (double a = 1.0; a + 0.5 < double(mu.frames()) / rate; a += 0.5) {
+    double s2 = 0;
+    for (int64_t i = int64_t(a * rate); i < int64_t((a + 0.5) * rate); i++) s2 += double(mu.data[size_t(i) * 2]) * mu.data[size_t(i) * 2];
+    minRms = std::min(minRms, std::sqrt(s2 / (0.5 * rate)));
+  }
+  check(maxStep < 0.02, "no click in the music stem at loop seams", "%.4f (max %.3f)", maxStep, 0.02);
+  check(minRms > 0.3, "music keeps playing through every loop", "min RMS %.2f (want > %.1f)", minRms, 0.3);
+  check(st.musicJumps == 0, "loops aren't counted as timeline glitches", "%.0f (want %.0f)", double(st.musicJumps), 0);
+  check(p.loops() >= 3, "the region looped", "%.0f times (want >= %.0f)", double(p.loops()), 3);
+}
+
 int main() {
   testPlaybackRate();
   testClock();
@@ -644,6 +698,7 @@ int main() {
   testVocals();
   testMusicRegion();
   testDucking();
+  testLoopRecording();
   std::printf("\n%d passed, %d failed\n", passes, fails);
   return fails ? 1 : 0;
 }

@@ -383,7 +383,8 @@ void Recorder::onInput(const float* x, int n, int64_t captureNs, double musicPos
   if (captureNs > 0) lastBlockCapNs_.store(captureNs + int64_t(double(n) * 1e9 / rate_));
 }
 
-bool Recorder::start(const std::string& voiceWav, const std::string& musicWav, std::shared_ptr<Track> music) {
+bool Recorder::start(const std::string& voiceWav, const std::string& musicWav, std::shared_ptr<Track> music, MusicRegion region) {
+  region_ = region;
   if (recording_.load()) stop();
   raw_.clear();
   marks_.clear();
@@ -455,6 +456,8 @@ void Recorder::worker() {
     if (n > from) std::fwrite(buf.data() + from, 4, n - from, vf_);
     // music the singer heard, for the same recorded frames
     if (music_ && mf_) {
+      const double trackEnd = double(music_->frames - 1) / music_->rate;
+      const double reEnd = region_.end > 0 ? std::min(region_.end, trackEnd) : trackEnd;
       size_t mi = 0;
       for (size_t i = 0; i < n; i++) {
         const int64_t f = written_ + int64_t(i);
@@ -468,7 +471,12 @@ void Recorder::worker() {
           } else {
             const double pred = mPos_ + double(q.k - mK_) * mSpeed_ / rate_;
             const double d = q.musicPos - pred;
-            if (std::fabs(d) > 0.04 || q.speed != mSpeed_) { mPos_ = q.musicPos; jumps_++; }
+            if (std::fabs(d) > 0.04 || q.speed != mSpeed_) {
+              // a loop going back to the start of the region is expected, not a glitch
+              const bool wrap = region_.loop && d < 0 && q.musicPos - region_.start < 0.25;
+              mPos_ = q.musicPos;
+              if (!wrap) jumps_++;
+            }
             else mPos_ = pred + d * 0.02;  // follow the clock gently: no audible jitter
             mK_ = q.k; mSpeed_ = q.speed;
           }
@@ -485,7 +493,23 @@ void Recorder::worker() {
           if (back >= 0) pos = back;
         }
         if (!std::isnan(pos)) {
-          if (pos >= 0 && pos * music_->rate < double(music_->frames - 1)) mk_->stereo(music_->pcm.data(), music_->frames, pos * music_->rate, &l, &r);
+          // a loop wraps between two marks: follow it here too
+          if (region_.loop && reEnd > region_.start + 0.5 && pos >= reEnd) pos = region_.start + std::fmod(pos - reEnd, reEnd - region_.start);
+          if (pos >= 0 && pos < reEnd && pos * music_->rate < double(music_->frames - 1)) {
+            mk_->stereo(music_->pcm.data(), music_->frames, pos * music_->rate, &l, &r);
+            // the same shaping the player applies: loop seams and the end fade
+            double g = 1;
+            if (region_.loop) {
+              g = std::min(g, (reEnd - pos) / 0.006);
+              g = std::min(g, (pos - region_.start) / 0.006 + (written_ + int64_t(i) < rate_ ? 1.0 : 0.0));
+            } else if (region_.fadeOut > 0 && reEnd - pos < region_.fadeOut) {
+              g = (reEnd - pos) / region_.fadeOut;
+            }
+            g = std::max(0.0, std::min(1.0, g));
+            const float gs = float(g * g * (3 - 2 * g));
+            l *= gs;
+            r *= gs;
+          }
         }
         mus[mi++] = int16_t(std::lrint(std::max(-1.f, std::min(1.f, l)) * 32767.f));
         mus[mi++] = int16_t(std::lrint(std::max(-1.f, std::min(1.f, r)) * 32767.f));
@@ -837,29 +861,5 @@ VocalMap analyzeVocals(const Track& t) {
   return v;
 }
 
-int refineStarts(std::vector<std::pair<double, double>>& w, const VocalMap& v) {
-  if (v.regions.empty()) return 0;
-  int moved = 0;
-  for (size_t i = 0; i < w.size(); i++) {
-    const double s = w[i].first, e = w[i].second;
-    if (v.vocalAt(s) || v.vocalAt(s + 0.12)) continue;
-    const double nx = i + 1 < w.size() ? w[i + 1].first : s + 30;
-    // the voice starts inside the word: the word starts there
-    const double inside = v.nextOnset(s, e - 0.05);
-    if (!std::isnan(inside)) {
-      w[i].first = inside;
-      moved++;
-      continue;
-    }
-    // the whole word sits where nobody sings (intro, break): move it to the next vocal onset
-    if (v.vocalAt(e - 0.05)) continue;
-    const double t = v.nextOnset(s, nx - 0.05);
-    if (std::isnan(t)) continue;
-    w[i].first = t;
-    w[i].second = std::max(t + 0.08, std::min(nx - 0.01, t + (e - s)));
-    moved++;
-  }
-  return moved;
-}
 
 }  // namespace lectern

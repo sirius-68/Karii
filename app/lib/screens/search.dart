@@ -35,7 +35,7 @@ class _SearchTabState extends State<SearchTab> {
             onChanged: (v) => setState(() => q = v),
             textInputAction: TextInputAction.search,
             decoration: InputDecoration(
-              hintText: 'Songs, poems, movie lines',
+              hintText: 'Poems, scripts, movie lines, music',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: q.isEmpty
                   ? null
@@ -64,7 +64,7 @@ class _SearchTabState extends State<SearchTab> {
                     crossAxisSpacing: 12,
                     childAspectRatio: 1.6,
                     children: [
-                      for (final k in [Kind.song, Kind.poem, Kind.line, Kind.inst])
+                      for (final k in [Kind.poem, Kind.line, Kind.script, Kind.inst])
                         GestureDetector(
                           onTap: () => openList(context, k),
                           child: Cover(
@@ -75,11 +75,8 @@ class _SearchTabState extends State<SearchTab> {
                               padding: const EdgeInsets.all(14),
                               child: Align(
                                 alignment: Alignment.bottomLeft,
-                                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  Text(k == Kind.song ? 'Karaoke' : k == Kind.poem ? 'Poems' : k == Kind.line ? 'Movie lines' : 'Instrumentals',
-                                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-                                  if (k == Kind.song) const BetaTag(size: 9),
-                                ]),
+                                child: Text(k == Kind.script ? 'Scripts' : k == Kind.poem ? 'Poems' : k == Kind.line ? 'Movie lines' : 'Instrumentals',
+                                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
                               ),
                             ),
                           ),

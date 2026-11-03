@@ -22,12 +22,18 @@ MusicSource instSource(Item inst) {
   return MusicSource.empty;
 }
 
-/// Background music of an item.
+/// Background music of an item. Projects without a choice of their own use the music bed
+/// picked in earlier versions (a global setting), so existing performances keep their music.
 MusicSource musicFor(Item it) {
   if (it.kind == Kind.inst) return instSource(it);
   final m = it.music;
-  if (m == null) return MusicSource.empty;
+  if (m == null) {
+    final bed = Store.i.find(Store.i.settings['bed'] as String?);
+    return bed != null && bed.kind == Kind.inst ? instSource(bed) : MusicSource.empty;
+  }
   switch (m['type']) {
+    case 'none':
+      return MusicSource.empty;
     case 'file':
       return MusicSource(path: m['path'] as String?, label: '${m['name'] ?? 'Your track'}');
     case 'asset':

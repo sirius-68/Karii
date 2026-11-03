@@ -10,7 +10,16 @@ class HeardWord {
   static HeardWord fromJson(dynamic m) => HeardWord('${m['text']}', (m['start'] as num).toDouble(), (m['end'] as num).toDouble());
 }
 
-final sectionTag = RegExp(r'^\[([^\]]*)\]$');
+/// A section header: [Verse], [Scene 2], [Intro] on a line of its own, starting with a capital
+/// letter or a digit. A bracketed line starting in lower case ([pause], [look away]) is a stage
+/// direction and stays part of the text.
+final sectionTag = RegExp(r'^\[([A-Z0-9\u00C0-\u00DE\u0400-\u042F][^\]]*)\]$', unicode: true);
+
+/// A section name as it should be written: no brackets or line breaks, capitalised.
+String sectionName(String n) {
+  final t = n.replaceAll(RegExp(r'[\[\]\n]'), '').trim();
+  return t.isEmpty ? t : t[0].toUpperCase() + t.substring(1);
+}
 
 /// Text lines of a script, without [Section] headers and blank lines.
 List<String> scriptLines(String? t) => (t ?? '')

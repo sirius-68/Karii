@@ -48,7 +48,7 @@ jobs:
           flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee ../analyze.log | tee -a ../build.log
 
       # ---------------------------------------------------------------- tests
-      - name: "Test: audio engine (speed, clock, recording, loudness, noise, vocals)"
+      - name: "Test: audio engine (speed, clock, recording, loudness, noise, music trim/loop/fades/ducking)"
         id: t_engine
         continue-on-error: true
         run: |
@@ -57,25 +57,7 @@ jobs:
           cmake --build ../build-tests -j4 2>&1 | grep -E "error|Built target" | tee -a ../build.log
           ../build-tests/engine_test 2>&1 | tee ../t_engine.log
 
-      - name: "Test: speech timing on a song with an intro and a break"
-        id: t_asr
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          sudo apt-get install -y -qq espeak-ng > /dev/null
-          pip install --quiet numpy
-          mkdir -p ../asr test/fixtures
-          python3 native/test/gen_song.py ../asr 2>&1 | tee ../t_asr.log
-          curl -sL -o ../asr/ggml-base-q5_1.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin
-          set +e
-          ../build-tests/asr_test ../asr/ggml-base-q5_1.bin ../asr/song.wav ../asr/truth.txt ../asr > ../asr/out.log 2>&1
-          rc=$?
-          set -e
-          grep -v "^whisper_\|^ggml_\|^load_backend" ../asr/out.log | tee -a ../t_asr.log
-          cp ../asr/words_new.json ../asr/truth.txt ../asr/lyrics.txt test/fixtures/ || true
-          exit $rc
-
-      - name: "Test: karaoke sync engine (Dart)"
+      - name: "Test: scripts, sections, teleprompter, undo and migration (Dart)"
         id: t_dart
         continue-on-error: true
         run: |
@@ -116,10 +98,9 @@ jobs:
             echo "| Suite | Result |"
             echo "|---|---|"
             echo "| Audio engine | ${{ steps.t_engine.outcome }} |"
-            echo "| Speech timing | ${{ steps.t_asr.outcome }} |"
-            echo "| Karaoke sync (Dart) | ${{ steps.t_dart.outcome }} |"
+            echo "| Scripts and projects (Dart) | ${{ steps.t_dart.outcome }} |"
             echo "| Background jobs | ${{ steps.t_jobs.outcome }} |"
-            for f in t_engine t_asr t_dart t_jobs; do
+            for f in t_engine t_dart t_jobs; do
               [ -f $f.log ] || continue
               echo; echo "## $f"; echo; echo '```'; grep -v "^\s*$" $f.log | tail -n 120; echo '```'
             done
@@ -128,8 +109,7 @@ jobs:
       - name: Publish to the apk branch
         working-directory: .
         run: |
-          mkdir -p /tmp/apkbranch/asr && cp Lectern.apk TEST-REPORT.md /tmp/apkbranch/
-          cp asr/song.wav asr/truth.txt asr/lyrics.txt asr/words_*.json /tmp/apkbranch/asr/ 2>/dev/null || true
+          mkdir -p /tmp/apkbranch && cp Lectern.apk TEST-REPORT.md /tmp/apkbranch/
           printf 'Latest Android build of Lectern (native).\n\nBuilt from %s on %s. See TEST-REPORT.md.\n' "$GITHUB_SHA" "$(date -u +'%Y-%m-%d %H:%M UTC')" > /tmp/apkbranch/README.md
           cd /tmp/apkbranch
           git init -q -b apk
@@ -141,7 +121,7 @@ jobs:
       - name: Fail if a test suite failed
         working-directory: .
         run: |
-          for o in "${{ steps.t_engine.outcome }}" "${{ steps.t_asr.outcome }}" "${{ steps.t_dart.outcome }}" "${{ steps.t_jobs.outcome }}"; do
+          for o in "${{ steps.t_engine.outcome }}" "${{ steps.t_dart.outcome }}" "${{ steps.t_jobs.outcome }}"; do
             [ "$o" = "success" ] || { echo "::error title=Tests::a test suite failed (see TEST-REPORT.md on the apk branch)"; exit 1; }
           done
 

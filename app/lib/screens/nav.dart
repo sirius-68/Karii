@@ -10,22 +10,22 @@ import 'detail.dart';
 import 'editor.dart';
 import 'list_screen.dart';
 import 'scripts.dart';
-import 'stage.dart';
+import 'perform.dart';
 
 Future<void> openItem(BuildContext context, Item it) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetailScreen(item: it)));
 
 Future<void> perform(BuildContext context, Item it) async {
   if (it.kind == Kind.inst) {
-    toast(context, 'Instrumentals play as a music bed: open a poem or script and pick it in Music.');
+    toast(context, 'Instrumentals are background music: open a poem or script and pick it in Music.');
     return;
   }
   if (it.body.trim().isEmpty) {
-    toast(context, it.kind == Kind.song ? 'Add some lyrics first.' : 'Write something first.');
+    toast(context, 'Write something first.');
     if (!it.isCat) await editItem(context, it);
     return;
   }
   Store.i.played(it);
-  await Navigator.of(context).push(MaterialPageRoute(fullscreenDialog: true, builder: (_) => StageScreen(item: it)));
+  await Navigator.of(context).push(MaterialPageRoute(fullscreenDialog: true, builder: (_) => PerformScreen(item: it)));
 }
 
 Future<void> editItem(BuildContext context, Item it, {bool fresh = false}) =>
@@ -44,7 +44,7 @@ void itemMenu(BuildContext context, Item it, {VoidCallback? changed}) {
   if (it.kind == Kind.inst && !it.isCat) return _userInstMenu(context, it, changed);
   final liked = Store.i.likes.contains(it.id);
   actionSheet(context, it.title, [
-    SheetAction(Icons.mic_external_on_outlined, it.kind == Kind.song ? 'Sing' : 'Perform', () => perform(context, it)),
+    SheetAction(Icons.videocam_outlined, 'Perform', () => perform(context, it)),
     SheetAction(liked ? Icons.favorite : Icons.favorite_border, liked ? 'Remove from Liked' : 'Like', () {
       Store.i.toggleLike(it.id);
       changed?.call();
@@ -72,10 +72,10 @@ void itemMenu(BuildContext context, Item it, {VoidCallback? changed}) {
 void _userInstMenu(BuildContext context, Item it, VoidCallback? changed) {
   actionSheet(context, it.title, [
     SheetAction(Icons.play_arrow, 'Open', () => openItem(context, it)),
-    SheetAction(Icons.queue_music, Store.i.settings['bed'] == it.id ? 'Music bed (current)' : 'Use as music bed', () {
+    SheetAction(Icons.queue_music, Store.i.settings['bed'] == it.id ? 'Default music (current)' : 'Use as default music', () {
       Store.i.set('bed', it.id);
-      toast(context, '“${it.title}” is now your music bed');
-    }, sub: 'Plays under poems, scripts and lines'),
+      toast(context, '“${it.title}” now plays under projects without music of their own');
+    }, sub: 'For projects that have no music of their own'),
     SheetAction(Icons.edit_note, 'Write lyrics on it', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => LyricPad(beat: it)))),
     if (it.m['store'] == 'beat') SheetAction(Icons.album_outlined, 'Open in beat maker', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => BeatMaker(edit: it)))),
     SheetAction(Icons.drive_file_rename_outline, 'Rename', () async {
@@ -87,7 +87,7 @@ void _userInstMenu(BuildContext context, Item it, VoidCallback? changed) {
       }
     }),
     SheetAction(Icons.delete_outline, 'Delete', () async {
-      if (await confirm(context, 'Delete “${it.title}”?', 'Songs using it will lose their music.', 'Delete', danger: true)) {
+      if (await confirm(context, 'Delete “${it.title}”?', 'Projects using it will lose their music.', 'Delete', danger: true)) {
         if (Store.i.settings['bed'] == it.id) Store.i.settings['bed'] = null;
         Store.i.deleteItem(it);
         changed?.call();

@@ -1,4 +1,6 @@
-// After a take: watch it, fix audio/video sync, save it (and to the gallery), share or discard it.
+// After a take: watch it, fix audio/video sync, rebalance the music under the voice (level,
+// fades, ducking: the voice and music are kept separately until the take is saved), save it
+// (and to the gallery), share or discard it.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,7 +10,7 @@ import 'package:video_player/video_player.dart';
 import '../core/model.dart';
 import '../core/store.dart';
 import '../engine/engine.dart';
-import '../lyrics/timing.dart';
+import '../core/text.dart';
 import '../widgets/ui.dart';
 
 void _rm(String? p) {
@@ -137,6 +139,11 @@ class _TakeEditorState extends State<TakeEditor> {
 
   bool get isVideo => d.m['isVideo'] == true;
   late double balance = ((d.edit['balance'] as num?) ?? 0).toDouble();
+  late double fadeIn = ((d.edit['fadeIn'] as num?) ?? 0).toDouble();
+  late double fadeOut = ((d.edit['fadeOut'] as num?) ?? 0).toDouble();
+  late double duckDb = ((d.edit['duckDb'] as num?) ?? 0).toDouble();
+  late bool duck = duckDb > 0;
+  late double duckAmount = duckDb > 0 ? duckDb : 9;
   bool get hasStems => d.voice != null && File(d.voice!).existsSync();
   bool get canResync => isVideo && d.m['raw'] != null && File('${d.m['raw']}').existsSync() && hasStems;
   bool get canBalance => hasStems && d.music != null && File(d.music!).existsSync();
@@ -166,9 +173,12 @@ class _TakeEditorState extends State<TakeEditor> {
         video: isVideo ? '${d.m['raw']}' : null,
         offset: isVideo ? base + delta : null,
         balance: balance,
+        fadeIn: fadeIn,
+        fadeOut: fadeOut,
+        duckDb: duck ? duckAmount : 0,
       );
       await File(tmp).rename(d.video);
-      d.edit = {...d.edit, 'delta': delta, 'balance': balance};
+      d.edit = {...d.edit, 'delta': delta, 'balance': balance, 'fadeIn': fadeIn, 'fadeOut': fadeOut, 'duckDb': duck ? duckAmount : 0.0};
       d.m['meta'] = {...d.meta, 'mix': {...mix.toJson(), 'offset': base}};
       Store.i.save();
       await player.currentState?.open();
@@ -286,14 +296,36 @@ class _TakeEditorState extends State<TakeEditor> {
           ],
           if (canBalance) ...[
             const SizedBox(height: 18),
-            const Text('Music level', style: TextStyle(fontWeight: FontWeight.w700)),
-            const Text('How loud the backing track is under your voice.', style: TextStyle(color: C.muted, fontSize: 13)),
+            const Text('Music under your voice', style: TextStyle(fontWeight: FontWeight.w700)),
+            Text('${d.meta['musicLabel'] ?? 'Background music'} · change these and apply; your voice is kept separately.', style: const TextStyle(color: C.muted, fontSize: 13)),
             Row(children: [
-              const Text('Quieter', style: TextStyle(color: C.muted, fontSize: 12)),
-              Expanded(child: Slider(value: balance, min: -12, max: 6, divisions: 18, label: '${balance >= 0 ? '+' : ''}${balance.round()} dB', onChanged: (v) => setState(() => balance = v))),
-              const Text('Louder', style: TextStyle(color: C.muted, fontSize: 12)),
+              const SizedBox(width: 78, child: Text('Level', style: TextStyle(color: C.muted, fontSize: 12.5))),
+              Expanded(child: Slider(value: balance.clamp(-12.0, 6.0), min: -12, max: 6, divisions: 18, label: '${balance >= 0 ? '+' : ''}${balance.round()} dB', onChanged: (v) => setState(() => balance = v))),
+              SizedBox(width: 48, child: Text('${balance >= 0 ? '+' : ''}${balance.round()} dB', textAlign: TextAlign.right, style: const TextStyle(color: C.muted, fontSize: 12.5))),
             ]),
-            Align(alignment: Alignment.centerRight, child: TextButton(onPressed: remix, child: const Text('Apply'))),
+            Row(children: [
+              const SizedBox(width: 78, child: Text('Fade in', style: TextStyle(color: C.muted, fontSize: 12.5))),
+              Expanded(child: Slider(value: fadeIn.clamp(0.0, 8.0), max: 8, divisions: 16, onChanged: (v) => setState(() => fadeIn = v))),
+              SizedBox(width: 48, child: Text('${fadeIn.toStringAsFixed(1)} s', textAlign: TextAlign.right, style: const TextStyle(color: C.muted, fontSize: 12.5))),
+            ]),
+            Row(children: [
+              const SizedBox(width: 78, child: Text('Fade out', style: TextStyle(color: C.muted, fontSize: 12.5))),
+              Expanded(child: Slider(value: fadeOut.clamp(0.0, 10.0), max: 10, divisions: 20, onChanged: (v) => setState(() => fadeOut = v))),
+              SizedBox(width: 48, child: Text('${fadeOut.toStringAsFixed(1)} s', textAlign: TextAlign.right, style: const TextStyle(color: C.muted, fontSize: 12.5))),
+            ]),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Lower the music while you speak'),
+              value: duck,
+              onChanged: (v) => setState(() => duck = v),
+            ),
+            if (duck)
+              Row(children: [
+                const SizedBox(width: 78, child: Text('Lower by', style: TextStyle(color: C.muted, fontSize: 12.5))),
+                Expanded(child: Slider(value: duckAmount.clamp(3.0, 18.0), min: 3, max: 18, divisions: 15, onChanged: (v) => setState(() => duckAmount = v))),
+                SizedBox(width: 48, child: Text('${duckAmount.round()} dB', textAlign: TextAlign.right, style: const TextStyle(color: C.muted, fontSize: 12.5))),
+              ]),
+            Align(alignment: Alignment.centerRight, child: FilledButton.tonal(onPressed: remix, child: const Text('Apply to the take'))),
           ],
           if (mixInfo['lufs'] is num && mixInfo['truePeak'] is num)
             Padding(

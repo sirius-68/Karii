@@ -13,11 +13,11 @@ extern std::atomic<bool> g_sttAbort;     // set to cancel
 
 struct TranscribeOptions {
   bool dtw = true;      // DTW token timestamps
-  bool refine = true;   // vocal-map corrections and hallucination filter
+  bool refine = true;   // drop words the model imagined where no voice is
   int threads = 0;      // 0 = pick from the CPU count
 };
 
-// {"words":[{text,start,end}],"vad":[[s,e]],"lang":"xx","refined":n,"dropped":n} or {"error":...}
+// {"words":[{text,start,end}],"vad":[[s,e]],"lang":"xx","dropped":n} or {"error":...}
 std::string transcribeJson(std::shared_ptr<Track> track, const std::string& model, std::string lang, const TranscribeOptions& opt);
 
 }  // namespace lectern

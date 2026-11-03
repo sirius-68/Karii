@@ -1,13 +1,9 @@
 // On-device speech recognition (whisper.cpp) for Clip to lines: the words spoken in a clip,
-// with their times, so they can be split into lines.
-// Word timing:
-//  1. Token times from DTW over Whisper's alignment cross-attention heads (whisper.cpp
-//     dtw_token_timestamps), which are much closer to when a word is actually sung than the
-//     decoder's timestamp tokens (those tend to put a phrase's first word at the start of the
-//     audio window, i.e. inside an instrumental intro).
-//  2. A vocal map of the song (centre-channel vocal-band energy): words the recogniser put where
-//     nobody sings are moved to the next vocal onset, and hallucinated text in intros/breaks
-//     ("thank you for watching") is dropped.
+// with their times, so they can be split into lines at pauses.
+//  - Token times from DTW over Whisper's alignment cross-attention heads (whisper.cpp
+//    dtw_token_timestamps).
+//  - A map of where a voice is (centre-channel speech-band energy): text the recogniser
+//    imagined over music or silence ("thank you for watching") is dropped.
 
 #include <algorithm>
 #include <cctype>
@@ -243,7 +239,7 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
     for (double t = w.s; t <= std::max(w.e, w.s + 0.2) && !voiced; t += 0.05) voiced = vmap.vocalAt(t);
     if (opt.refine && !voiced && w.seg < int(noSpeech.size()) && noSpeech[size_t(w.seg)] > 0.5f) continue;
     if (opt.refine && !voiced) {
-      // a known hallucinated phrase sitting where nobody sings
+      // a known hallucinated phrase sitting where nobody speaks
       std::string segText;
       for (const auto& x : clean) if (x.seg == w.seg) segText += lower(x.text) + " ";
       bool hallu = false;
@@ -252,10 +248,8 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
     }
     kept.push_back(w);
   }
-  // move starts that sit before the voice (intro, breaks) to the vocal onset that follows
   std::vector<std::pair<double, double>> se;
   for (const auto& w : kept) se.push_back({w.s, w.e});
-  const int moved = opt.refine ? refineStarts(se, vmap) : 0;
   std::string out = "{\"words\":[";
   for (size_t i = 0; i < kept.size(); i++) {
     char num[96];
@@ -265,12 +259,12 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
     out += num;
   }
   char tail[160];
-  std::snprintf(tail, sizeof tail, "],\"refined\":%d,\"dropped\":%d,\"lang\":\"", moved, int(clean.size() - kept.size()));
+  std::snprintf(tail, sizeof tail, "],\"dropped\":%d,\"lang\":\"", int(clean.size() - kept.size()));
   out += tail;
   jsonEscape(out, langOut);
   out += "\",\"vad\":" + vadJson(vmap) + "}";
   g_progress.store(100);
-  LOGI("transcribed %zu words (%d moved to the voice, %d dropped), %zu vocal regions", kept.size(), moved, int(clean.size() - kept.size()),
+  LOGI("transcribed %zu words (%d dropped), %zu speech regions", kept.size(), int(clean.size() - kept.size()),
        vmap.regions.size());
   return out;
 }

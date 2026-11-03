@@ -217,7 +217,12 @@ bool Engine::startRecord(const std::string& voicePath, const std::string& musicP
     outXr0_ = out_ && out_->getXRunCount() ? out_->getXRunCount().value() : 0;
     inXr0_ = in_->getXRunCount() ? in_->getXRunCount().value() : 0;
   }
-  return rec_.start(voicePath, musicPath, player_.track());
+  MusicRegion reg;
+  reg.start = player_.regionStart();
+  reg.end = player_.regionEnd();
+  reg.loop = player_.looping();
+  reg.fadeOut = player_.fadeOutSec();
+  return rec_.start(voicePath, musicPath, player_.track(), reg);
 }
 
 RecStats Engine::stopRecord(int32_t* outXruns, int32_t* inXruns) {

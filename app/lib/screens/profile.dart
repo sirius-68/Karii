@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/store.dart';
 import '../engine/engine.dart';
 import '../widgets/ui.dart';
-import 'ai_sync.dart';
+import 'clip_lines.dart';
 
 class ProfileTab extends StatelessWidget {
   const ProfileTab({super.key});
@@ -68,20 +68,15 @@ class ProfileTab extends StatelessWidget {
               ], note: 'With headphones, Lectern always records your voice and mixes the music in cleanly.'),
             ),
             _slider('Mic level', '${st.sd('micGain') >= 0 ? '+' : ''}${st.sd('micGain').round()} dB', st.sd('micGain').clamp(-12.0, 12.0), -12, 12, (v) => st.set('micGain', v.roundToDouble())),
-            _slider('Karaoke music volume', '${(st.sd('karVol') * 100).round()}%', st.sd('karVol').clamp(0.0, 1.0), 0, 1, (v) => st.set('karVol', v)),
-            _slider('Music bed volume', '${st.sd('bedVol').round()}%', st.sd('bedVol').clamp(0.0, 100.0), 0, 100, (v) => st.set('bedVol', v.round())),
-            _switch('Guide melody', 'Play built-in songs with the tune on top', st.s<bool>('guide'), (v) => st.set('guide', v)),
             _switch('Save takes to the gallery', 'Keep a copy in your phone’s gallery when you save', st.s<bool>('saveToGallery'), (v) => st.set('saveToGallery', v)),
-            const SectionHead('Lyrics'),
-            _slider('Text size', '${st.sd('textSize').round()}', st.sd('textSize').clamp(20.0, 60.0), 20, 60, (v) => st.set('textSize', v)),
-            _slider('Tap sync delay', '${(st.sd('tapLat') * 1000).round()} ms', st.sd('tapLat').clamp(0.0, 0.3), 0, 0.3, (v) => st.set('tapLat', (v * 100).round() / 100)),
+            const SectionHead('Clip to lines'),
             ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              title: const Text('AI sync model'),
+              title: const Text('Speech model'),
               subtitle: Text('${sttModels.firstWhere((m) => m.id == st.s<String>('sttModel'), orElse: () => sttModels.first).name} · ${sttLanguages[st.s<String>('sttLanguage')] ?? 'Auto'}',
                   style: const TextStyle(color: C.muted)),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => actionSheet(context, 'AI sync model', [
+              onTap: () => actionSheet(context, 'Speech model', [
                 for (final m in sttModels) SheetAction(st.s<String>('sttModel') == m.id ? Icons.check : Icons.memory, m.name, () => st.set('sttModel', m.id), sub: '${m.note} ${m.size}'),
               ], note: 'Runs on your phone. The model downloads once, the first time you use it.'),
             ),
@@ -89,12 +84,12 @@ class ProfileTab extends StatelessWidget {
             const ListTile(
               contentPadding: EdgeInsets.symmetric(horizontal: 20),
               title: Text('Lectern'),
-              subtitle: Text('Native build · Flutter with a C++ audio engine (Oboe) and on-device speech recognition (whisper.cpp)', style: TextStyle(color: C.muted)),
+              subtitle: Text('Performance studio · Flutter with a C++ audio engine (Oboe) and on-device speech recognition (whisper.cpp)', style: TextStyle(color: C.muted)),
             ),
             const ListTile(
               contentPadding: EdgeInsets.symmetric(horizontal: 20),
               title: Text('Credits'),
-              subtitle: Text('Instrumentals by Tanner Helland (CC BY 4.0). Karaoke songs are public-domain melodies with arrangements made for Lectern.', style: TextStyle(color: C.muted)),
+              subtitle: Text('Instrumentals by Tanner Helland (CC BY 4.0).', style: TextStyle(color: C.muted)),
             ),
           ]),
         );

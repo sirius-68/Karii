@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/model.dart';
 import '../core/store.dart';
-import '../lyrics/timing.dart';
+import '../core/text.dart';
 import '../widgets/ui.dart';
 import 'nav.dart';
 import 'take_editor.dart';
@@ -47,7 +47,7 @@ class _LibraryTabState extends State<LibraryTab> {
           if (mine.isNotEmpty) {
             show.add(const SectionHead('Made by you'));
             for (final it in mine) {
-              show.add(ItemRow(it, subtitle: '${kindLabel(it.kind)}${it.kind == Kind.song && it.hasTiming ? ' · synced' : ''}', onTap: () => openItem(context, it), onMore: () => itemMenu(context, it)));
+              show.add(ItemRow(it, subtitle: '${kindLabel(it.kind)} · ${wordCount(it.body)} words', onTap: () => openItem(context, it), onMore: () => itemMenu(context, it)));
             }
           }
         }
@@ -67,7 +67,7 @@ class _LibraryTabState extends State<LibraryTab> {
               SizedBox(height: 12),
               Text('Nothing here yet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               SizedBox(height: 6),
-              Text('Your recordings, songs, scripts and likes show up here.', textAlign: TextAlign.center, style: TextStyle(color: C.muted)),
+              Text('Your recordings, scripts, poems and likes show up here.', textAlign: TextAlign.center, style: TextStyle(color: C.muted)),
             ]),
           ));
         }
@@ -81,10 +81,10 @@ class _LibraryTabState extends State<LibraryTab> {
                 const Spacer(),
                 IconButton(
                   onPressed: () => actionSheet(context, 'Create', [
-                    SheetAction(Icons.mic_external_on_outlined, 'Karaoke song', () => createItem(context, Kind.song)),
                     SheetAction(Icons.history_edu_outlined, 'Poem', () => createItem(context, Kind.poem)),
                     SheetAction(Icons.movie_outlined, 'Movie line', () => createItem(context, Kind.line)),
                     SheetAction(Icons.description_outlined, 'Script', () => openScripts(context)),
+                    SheetAction(Icons.lyrics_outlined, 'Lyrics (spoken word)', () => createItem(context, Kind.lyrics)),
                   ]),
                   icon: const Icon(Icons.add),
                 ),

@@ -10,7 +10,7 @@ import 'package:flutter/scheduler.dart';
 import '../core/model.dart';
 import '../core/store.dart';
 import '../engine/engine.dart';
-import '../lyrics/timing.dart';
+import '../core/text.dart';
 import '../widgets/ui.dart';
 import 'lyric_pad.dart';
 import 'synth.dart';

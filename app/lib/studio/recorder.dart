@@ -9,7 +9,7 @@ import '../core/media.dart';
 import '../core/model.dart';
 import '../core/store.dart';
 import '../engine/engine.dart';
-import '../lyrics/timing.dart';
+import '../core/text.dart';
 import '../screens/take_editor.dart';
 import '../widgets/ui.dart';
 import 'beat_maker.dart';

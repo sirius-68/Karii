@@ -16,7 +16,6 @@ class ExploreTab extends StatelessWidget {
       animation: Store.i,
       builder: (context, _) {
         final st = Store.i;
-        final songs = [...Catalog.i.list(Kind.song), ...st.items.where((x) => x.kind == Kind.song)];
         final recent = st.recents.map(st.find).whereType<Item>().where((x) => x.kind != Kind.inst).take(10).toList();
         final hour = DateTime.now().hour;
         final greet = hour < 5 ? 'Up late' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
@@ -67,7 +66,7 @@ class ExploreTab extends StatelessWidget {
                             Row(children: [Icon(Icons.description_outlined, size: 14, color: Colors.white70), SizedBox(width: 6), Text('SCRIPT WRITER', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.6))]),
                             SizedBox(height: 6),
                             Text('Create a script', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.5)),
-                            Text('Talks, videos and presentations', style: TextStyle(color: Colors.white70), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            Text('Speeches, monologues, stories and videos', style: TextStyle(color: Colors.white70), maxLines: 1, overflow: TextOverflow.ellipsis),
                           ]),
                         ),
                         CircleAvatar(radius: 26, backgroundColor: Colors.white, child: Icon(Icons.edit_outlined, color: Colors.black)),
@@ -81,11 +80,11 @@ class ExploreTab extends StatelessWidget {
             SizedBox(
               height: 44,
               child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 20), children: [
-                Pill('Karaoke', icon: Icons.mic_external_on_outlined, trailing: const BetaTag(size: 9), onTap: () => openList(context, Kind.song)),
-                const SizedBox(width: 8),
                 Pill('Poems', icon: Icons.history_edu_outlined, onTap: () => openList(context, Kind.poem)),
                 const SizedBox(width: 8),
                 Pill('Movie lines', icon: Icons.movie_outlined, onTap: () => openList(context, Kind.line)),
+                const SizedBox(width: 8),
+                Pill('Scripts', icon: Icons.description_outlined, onTap: () => openList(context, Kind.script)),
                 const SizedBox(width: 8),
                 Pill('Instrumentals', icon: Icons.graphic_eq, onTap: () => openList(context, Kind.inst)),
               ]),
@@ -94,9 +93,6 @@ class ExploreTab extends StatelessWidget {
               const SectionHead('Jump back in'),
               Shelf(children: [for (final it in recent) SquareCard(it, onTap: () => openItem(context, it))]),
             ],
-            SectionHead('Sing now', badge: const BetaTag(), onMore: () => openList(context, Kind.song)),
-            const BetaNote(),
-            for (final s in songs.take(6)) ItemRow(s, onTap: () => openItem(context, s), onMore: () => itemMenu(context, s)),
             SectionHead('Poems for tonight', onMore: () => openList(context, Kind.poem)),
             Shelf(children: [for (final p in Catalog.i.list(Kind.poem)) SquareCard(p, onTap: () => openItem(context, p))]),
             SectionHead('Movie lines', onMore: () => openList(context, Kind.line)),
@@ -105,7 +101,7 @@ class ExploreTab extends StatelessWidget {
             for (final s in Catalog.i.list(Kind.inst).take(5)) ItemRow(s, onTap: () => openItem(context, s)),
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 12, 20, 0),
-              child: Text('Music by Tanner Helland, CC BY 4.0. Use any track as a music bed for poems, scripts and movie lines.', style: TextStyle(color: C.faint, fontSize: 12.5)),
+              child: Text('Music by Tanner Helland, CC BY 4.0. Use any track as background music for a poem, script, speech or movie line.', style: TextStyle(color: C.faint, fontSize: 12.5)),
             ),
           ]),
         );

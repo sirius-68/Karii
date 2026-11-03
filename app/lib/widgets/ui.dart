@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../core/model.dart';
-import '../lyrics/timing.dart';
+import '../core/text.dart';
 
 class C {
   static const bg = Color(0xFF0E0E10);
@@ -108,7 +108,7 @@ class _CoverPainter extends CustomPainter {
     c.drawCircle(g, s.shortestSide * 0.6, Paint()..shader = RadialGradient(colors: [p[2].withValues(alpha: 0.45), p[2].withValues(alpha: 0)]).createShader(Rect.fromCircle(center: g, radius: s.shortestSide * 0.6)));
     final w = s.shortestSide;
     switch (kind) {
-      case Kind.song:
+      case Kind.lyrics:
         // a sun or moon over a horizon
         final sun = Offset(s.width * 0.5, s.height * 0.42);
         c.drawCircle(sun, w * 0.18, Paint()..color = p[2].withValues(alpha: 0.9));
@@ -173,35 +173,6 @@ class _CoverPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CoverPainter o) => o.seed != seed || o.kind != kind;
-}
-
-class BetaTag extends StatelessWidget {
-  final double size;
-  const BetaTag({super.key, this.size = 11});
-  @override
-  Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(left: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        decoration: BoxDecoration(color: const Color(0x29FBBF24), borderRadius: BorderRadius.circular(99)),
-        child: Text('BETA', style: TextStyle(color: C.amber, fontSize: size, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-      );
-}
-
-class BetaNote extends StatelessWidget {
-  const BetaNote({super.key});
-  @override
-  Widget build(BuildContext context) => const Padding(
-        padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Padding(padding: EdgeInsets.only(top: 2, right: 8), child: Icon(Icons.science_outlined, size: 16, color: C.amber)),
-          Expanded(
-            child: Text.rich(TextSpan(children: [
-              TextSpan(text: 'Karaoke is in beta. ', style: TextStyle(color: C.ink2, fontWeight: FontWeight.w600)),
-              TextSpan(text: 'It’s still being tested, so you may run into errors while you use it.'),
-            ]), style: TextStyle(color: C.muted, fontSize: 13.5, height: 1.4)),
-          ),
-        ]),
-      );
 }
 
 class SectionHead extends StatelessWidget {

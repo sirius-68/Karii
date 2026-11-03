@@ -8,7 +8,8 @@
 //    mark; a worker thread does the processing and writes the voice and the music the singer
 //    heard (read from the track by the timeline), so the two stay sample-aligned.
 //  - finalizeTake: offline mix with loudness normalisation (BS.1770) and a true-peak limiter.
-//  - analyzeVocals: where the voice is (centre-channel vocal band energy), for lyric timing.
+//  - analyzeVocals: where a voice is (centre-channel speech band energy); Clip to lines uses it
+//    to drop words the recogniser imagined over music or silence.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -94,6 +95,13 @@ class StreamClock {
   std::atomic<bool> tsValid_{false};
 };
 
+// Background-music region the player uses, so the recorded music stem has the same loop seams
+// and end fade the performer heard (end <= 0: to the end of the track).
+struct MusicRegion {
+  double start = 0, end = 0, fadeOut = 0;
+  bool loop = false;
+};
+
 // ---------------------------------------------------------------- player
 class Player {
  public:
@@ -116,6 +124,8 @@ class Player {
   double regionStart() const { return regionStart_.load(); }
   double regionEnd() const;  // seconds
   int loops() const { return loops_.load(); }
+  bool looping() const { return loop_.load(); }
+  double fadeOutSec() const { return fadeOut_.load(); }
   double duration() const;
   bool playing() const { return playing_.load(); }
   // Called before rendering into a (new) stream at outRate; frame counting restarts at 0.
@@ -200,7 +210,7 @@ class Recorder {
   // musicPos = track seconds the singer heard at that moment (NaN when the music is not playing);
   // musicSpeed = playback speed of the music.
   void onInput(const float* x, int n, int64_t captureNs, double musicPos, double musicSpeed);
-  bool start(const std::string& voiceWav, const std::string& musicWav, std::shared_ptr<Track> music);
+  bool start(const std::string& voiceWav, const std::string& musicWav, std::shared_ptr<Track> music, MusicRegion region = {});
   void setPaused(bool p) { paused_.store(p); }
   bool recording() const { return recording_.load(); }
   size_t backlog() const { return raw_.available(); }  // samples waiting for the worker
@@ -244,6 +254,7 @@ class Recorder {
   double mPos_ = NAN, mSpeed_ = 1;
   int64_t mK_ = 0;
   int jumps_ = 0;
+  MusicRegion region_;
   std::vector<Mark> pending_;
 };
 
@@ -292,8 +303,5 @@ struct VocalMap {
   double nextOnset(double t, double limit) const;   // first region start in [t, limit), or NaN
 };
 VocalMap analyzeVocals(const Track& t);
-// Moves word starts that sit before the voice (intro, instrumental break) to the vocal onset
-// that follows, never past the next word. words: [start, end] pairs in order.
-int refineStarts(std::vector<std::pair<double, double>>& words, const VocalMap& v);
 
 }  // namespace lectern

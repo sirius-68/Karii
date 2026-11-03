@@ -1,4 +1,5 @@
-// AI lyric sync and lyrics-from-audio, using whisper.cpp on the device.
+// Clip to lines: import a movie clip and get the spoken lines as performance text, using
+// whisper.cpp on the device (a background job; see core/jobs.dart).
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -17,7 +18,7 @@ class SttModel {
 }
 
 const sttModels = [
-  SttModel('base', 'Whisper Base', 'ggml-base-q5_1.bin', '57 MB', 'Fast. Good on clear vocals.'),
+  SttModel('base', 'Whisper Base', 'ggml-base-q5_1.bin', '57 MB', 'Fast. Good on clear dialogue.'),
   SttModel('small', 'Whisper Small', 'ggml-small-q5_1.bin', '181 MB', 'More accurate, about 3× slower.'),
 ];
 
@@ -67,7 +68,7 @@ Future<Map<String, String>?> _pickOptions(BuildContext context, String title, St
             const SizedBox(height: 6),
             DropdownButtonFormField<String>(
               initialValue: lang,
-              decoration: const InputDecoration(labelText: 'Language of the song'),
+              decoration: const InputDecoration(labelText: 'Language spoken in the clip'),
               items: [for (final e in sttLanguages.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
               onChanged: (v) => lang = v ?? 'auto',
             ),
@@ -96,7 +97,7 @@ Future<Map<String, String>?> _pickOptions(BuildContext context, String title, St
 Future<bool> startTranscription(BuildContext context, Item it, {required String purpose, required String title, required String what, MusicSource? source}) async {
   final src = source ?? musicFor(it);
   if (src.none) {
-    toast(context, 'Attach music first');
+    toast(context, 'Pick a clip first');
     return false;
   }
   final running = Jobs.i.forItem(it.id);
@@ -130,11 +131,20 @@ Future<bool> startTranscription(BuildContext context, Item it, {required String 
   return true;
 }
 
-/// AI sync for a song's lyrics, or lyrics from audio when [generate].
-Future<bool> aiSync(BuildContext context, Item it, {bool generate = false}) => startTranscription(
-      context,
-      it,
-      purpose: generate ? 'generate' : 'sync',
-      title: generate ? 'Lyrics from audio' : 'Sync with AI',
-      what: generate ? 'Lectern listens to the song and writes the lyrics with word timing.' : 'Lectern listens to the song and times your lyrics word by word.',
-    );
+/// Picks a video, then transcribes it into a new movie-line project and opens it.
+Future<void> clipToLines(BuildContext context, {required Future<void> Function(Item) open}) async {
+  final r = await Engine.i.pickFile('video/*');
+  if (r == null || !context.mounted) return;
+  final it = Store.i.create(Kind.line);
+  it.title = '${r['name'] ?? 'Movie clip'}'.replaceAll(RegExp(r'\.[A-Za-z0-9]+$'), '');
+  it.m['clip'] = r['path'];
+  Store.i.save();
+  final ok = await startTranscription(context, it,
+      purpose: 'clip', title: 'Finding the lines', what: 'Lectern listens to the clip and writes out what is said.', source: MusicSource(path: '${r['path']}'));
+  if (!context.mounted) return;
+  if (!ok) {
+    Store.i.deleteItem(it);
+    return;
+  }
+  await open(it);
+}

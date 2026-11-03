@@ -30,14 +30,14 @@ class _OnboardingState extends State<Onboarding> {
   Widget build(BuildContext context) {
     final pages = [
       _page(
-        Icons.mic_external_on,
-        'Sing, speak, perform',
-        'Karaoke with word-by-word lyrics, a teleprompter for scripts and poems, and a studio for beats and lyrics. Everything records on your phone.',
+        Icons.videocam_outlined,
+        'Write it, perform it',
+        'Poems, monologues, movie lines, speeches and spoken-word lyrics on a teleprompter, with background music under your voice. Record, polish and share, all on your phone.',
       ),
       _page(
         Icons.headphones,
         'Headphones sound best',
-        'With headphones, Lectern records only your voice and mixes the music in cleanly. On the speaker it can record the room, or cancel the echo.',
+        'With headphones, Lectern records only your voice and mixes the music in cleanly afterwards, so you can still change levels, fades and ducking. On the speaker it cancels the echo.',
       ),
       Padding(
         padding: const EdgeInsets.all(28),

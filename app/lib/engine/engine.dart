@@ -1,6 +1,6 @@
 // Dart facade for the native audio engine (C++ via Kotlin; see native/).
 // The playback clock is read synchronously through dart:ffi every frame: it is the hardware
-// presentation clock of the audio output, so lyrics follow exactly what the listener hears.
+// presentation clock of the audio output, so the teleprompter and recordings follow exactly what the listener hears.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -109,7 +109,7 @@ class RecResult {
 }
 
 class TakeMix {
-  final double offset, lufs, truePeak, voiceLufs, musicLufs, gain, seconds;
+  final double offset, lufs, truePeak, voiceLufs, musicLufs, gain, seconds, duckMin;
   TakeMix(Map m)
       : offset = (m['offset'] as num?)?.toDouble() ?? 0,
         lufs = (m['lufs'] as num?)?.toDouble() ?? -120,
@@ -117,7 +117,8 @@ class TakeMix {
         voiceLufs = (m['voiceLufs'] as num?)?.toDouble() ?? -120,
         musicLufs = (m['musicLufs'] as num?)?.toDouble() ?? -120,
         gain = (m['gain'] as num?)?.toDouble() ?? 0,
-        seconds = (m['seconds'] as num?)?.toDouble() ?? 0;
+        seconds = (m['seconds'] as num?)?.toDouble() ?? 0,
+        duckMin = (m['duckMin'] as num?)?.toDouble() ?? 0;
   Map<String, dynamic> toJson() => {'offset': offset, 'lufs': lufs, 'truePeak': truePeak, 'voiceLufs': voiceLufs, 'musicLufs': musicLufs, 'gain': gain};
 }
 
@@ -164,7 +165,11 @@ class Engine extends ChangeNotifier {
   Future<bool> load({String? asset, String? path, String? url}) async {
     final key = asset ?? path ?? url;
     if (key == null) return false;
-    if (loadedKey == key && duration > 0 && clock.duration > 0) return true;
+    if (loadedKey == key && duration > 0 && clock.duration > 0) {
+      // already loaded: start from the whole track again (a project may have trimmed it)
+      await setMusic();
+      return true;
+    }
     final seq = ++_loadSeq;
     loading = true;
     notifyListeners();
@@ -209,6 +214,12 @@ class Engine extends ChangeNotifier {
     volume = v;
     return _ch.invokeMethod('volume', {'v': v.toDouble()});
   }
+
+  /// Background-music playback: only [start, end) of the track plays (end 0 = to the end),
+  /// optionally looping with a click-free seam, with a fade-in at the start and a fade-out at
+  /// the end of a non-looping region. The playback clock follows the loop.
+  Future<void> setMusic({double start = 0, double end = 0, bool loop = false, double fadeIn = 0, double fadeOut = 0}) =>
+      _ch.invokeMethod('music', {'start': start.toDouble(), 'end': end.toDouble(), 'loop': loop, 'fadeIn': fadeIn.toDouble(), 'fadeOut': fadeOut.toDouble()});
 
   /// Current state, read synchronously from the engine (falls back to the platform channel).
   Future<EngineState> state() async {
@@ -256,6 +267,9 @@ class Engine extends ChangeNotifier {
     int? videoStopNs,
     int? audioEndNs,
     double balance = 0,
+    double fadeIn = 0,
+    double fadeOut = 0,
+    double duckDb = 0,
   }) async {
     final r = await _ch.invokeMapMethod<String, dynamic>('finishTake', {
       'voice': voice,
@@ -268,6 +282,9 @@ class Engine extends ChangeNotifier {
       'videoStopNs': videoStopNs,
       'audioEndNs': audioEndNs,
       'balance': balance,
+      'fadeIn': fadeIn,
+      'fadeOut': fadeOut,
+      'duckDb': duckDb,
     });
     return TakeMix(r ?? {});
   }

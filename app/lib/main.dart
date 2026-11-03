@@ -26,7 +26,7 @@ Future<void> main() async {
   WidgetsBinding.instance.addPostFrameCallback((_) => Jobs.i.init());
 }
 
-/// Opens the song (or line) a finished job belongs to.
+/// Opens the project a finished job belongs to.
 void openJobResult(Job j) {
   final it = Store.i.find(j.itemId);
   final nav = navKey.currentState;
@@ -52,7 +52,7 @@ class _LecternAppState extends State<LecternApp> {
       if (m == null) return;
       m.hideCurrentSnackBar();
       m.showSnackBar(SnackBar(
-        content: Text(j.purpose == 'clip' ? 'The lines from your clip are ready' : 'Lyrics ready for “${Store.i.find(j.itemId)?.title ?? 'your song'}”'),
+        content: Text('The lines from “${Store.i.find(j.itemId)?.title ?? 'your clip'}” are ready'),
         action: SnackBarAction(label: 'Open', onPressed: () => openJobResult(j)),
         duration: const Duration(seconds: 6),
       ));
