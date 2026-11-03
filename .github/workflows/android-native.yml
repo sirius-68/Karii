@@ -67,8 +67,13 @@ jobs:
           mkdir -p ../asr test/fixtures
           python3 native/test/gen_song.py ../asr 2>&1 | tee ../t_asr.log
           curl -sL -o ../asr/ggml-base-q5_1.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin
-          ../build-tests/asr_test ../asr/ggml-base-q5_1.bin ../asr/song.wav ../asr/truth.txt ../asr 2>&1 | grep -v "^whisper_\|^ggml_\|^load_backend" | tee -a ../t_asr.log
-          cp ../asr/words_new.json ../asr/truth.txt ../asr/lyrics.txt test/fixtures/
+          set +e
+          ../build-tests/asr_test ../asr/ggml-base-q5_1.bin ../asr/song.wav ../asr/truth.txt ../asr > ../asr/out.log 2>&1
+          rc=$?
+          set -e
+          grep -v "^whisper_\|^ggml_\|^load_backend" ../asr/out.log | tee -a ../t_asr.log
+          cp ../asr/words_new.json ../asr/truth.txt ../asr/lyrics.txt test/fixtures/ || true
+          exit $rc
 
       - name: "Test: karaoke sync engine (Dart)"
         id: t_dart
@@ -89,7 +94,15 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          cd android && ./gradlew --quiet :app:testReleaseUnitTest -i 2>&1 | grep -E "JobStoreTest|duplicate|restart|PASSED|FAILED|tests completed|BUILD" | tee ../../t_jobs.log
+          cd android
+          set +e
+          ./gradlew :app:testReleaseUnitTest -i > ../../jobs_full.log 2>&1
+          rc=$?
+          set -e
+          grep -E "JobStoreTest|duplicate enqueue|restart:|PASSED|FAILED|tests completed|BUILD|error:|e: |What went wrong" ../../jobs_full.log | head -n 60 > ../../t_jobs.log
+          [ $rc -eq 0 ] || tail -n 40 ../../jobs_full.log >> ../../t_jobs.log
+          cat ../../t_jobs.log
+          exit $rc
 
       - name: Write the test report
         if: always()
@@ -115,7 +128,8 @@ jobs:
       - name: Publish to the apk branch
         working-directory: .
         run: |
-          mkdir -p /tmp/apkbranch && cp Lectern.apk TEST-REPORT.md /tmp/apkbranch/
+          mkdir -p /tmp/apkbranch/asr && cp Lectern.apk TEST-REPORT.md /tmp/apkbranch/
+          cp asr/song.wav asr/truth.txt asr/lyrics.txt asr/words_*.json /tmp/apkbranch/asr/ 2>/dev/null || true
           printf 'Latest Android build of Lectern (native).\n\nBuilt from %s on %s. See TEST-REPORT.md.\n' "$GITHUB_SHA" "$(date -u +'%Y-%m-%d %H:%M UTC')" > /tmp/apkbranch/README.md
           cd /tmp/apkbranch
           git init -q -b apk

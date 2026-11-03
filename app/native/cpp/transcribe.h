@@ -16,6 +16,7 @@ struct TranscribeOptions {
   bool refine = true;   // vocal-map corrections and hallucination filter
   int threads = 0;      // 0 = pick from the CPU count
   bool legacy = false;  // reproduce the previous app's timing (for comparison tests)
+  bool debug = false;   // add per-word diagnostics to the JSON
 };
 
 // {"words":[{text,start,end}],"vad":[[s,e]],"lang":"xx","refined":n,"dropped":n} or {"error":...}

@@ -91,6 +91,7 @@ struct Word {
   std::string text;
   double s, e;
   int seg;
+  double t0 = -1, dtw = -1;  // decoder timestamp and DTW time of the first token (diagnostics)
 };
 
 std::string lectern::vocalMapJson(const Track& t) { return vadJson(analyzeVocals(t)); }
@@ -176,6 +177,8 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
         Word w;
         w.text = startsWord ? txt.substr(1) : txt;
         w.s = t;
+        w.t0 = d.t0 / 100.0;
+        w.dtw = d.t_dtw / 100.0;
         w.e = d.t1 / 100.0;
         w.seg = i;
         words.push_back(w);
@@ -231,8 +234,15 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
     char num[96];
     out += i ? ",{\"text\":\"" : "{\"text\":\"";
     jsonEscape(out, kept[i].text);
-    std::snprintf(num, sizeof num, "\",\"start\":%.3f,\"end\":%.3f}", se[i].first, se[i].second);
-    out += num;
+    if (opt.debug) {
+      char dbg[160];
+      std::snprintf(dbg, sizeof dbg, "\",\"start\":%.3f,\"end\":%.3f,\"t0\":%.3f,\"dtw\":%.3f,\"raw\":%.3f,\"seg\":%d}", se[i].first, se[i].second,
+                    kept[i].t0, kept[i].dtw, kept[i].s, kept[i].seg);
+      out += dbg;
+    } else {
+      std::snprintf(num, sizeof num, "\",\"start\":%.3f,\"end\":%.3f}", se[i].first, se[i].second);
+      out += num;
+    }
   }
   char tail[160];
   std::snprintf(tail, sizeof tail, "],\"refined\":%d,\"dropped\":%d,\"lang\":\"", moved, int(clean.size() - kept.size()));
