@@ -319,7 +319,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
                         onTap: () {
                           Navigator.pop(c);
                           setState(() => showScript = true);
-                          WidgetsBinding.instance.addPostFrameCallback((_) => jumpTo(r.index));
+                          jumpTo(r.index);
                         },
                       ),
             ]),
@@ -761,13 +761,16 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
               gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x88000000), Color(0x00000000), Color(0x00000000), Color(0xBB000000)], stops: [0, 0.2, 0.6, 1]),
             ),
           ),
-          if (showScript && it.body.trim().isNotEmpty)
+          // hidden, the script keeps its place (and keeps scrolling) so it comes back where you are
+          if (it.body.trim().isNotEmpty)
             Positioned(
               top: areaTop,
               left: pad.left + 8,
               right: pad.right + 8 + sideW,
               height: areaH,
-              child: GestureDetector(
+              child: IgnorePointer(
+               ignoring: !showScript,
+               child: GestureDetector(
                 onTap: () {
                   if (rehearsing || recordingNow) setState(() => scrollPaused = !scrollPaused);
                 },
@@ -780,11 +783,12 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(14),
                     child: Opacity(
-                      opacity: ps.opacity.clamp(0.2, 1.0),
+                      opacity: showScript ? ps.opacity.clamp(0.2, 1.0) : 0.0,
                       child: PrompterView(body: it.body, style: style, readingLine: ps.readingLine, controller: scroll, keys: keys, mirror: ps.mirror),
                     ),
                   ),
                 ),
+               ),
               ),
             ),
           if (scrollPaused && (rehearsing || recordingNow) && showScript)

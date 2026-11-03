@@ -1,5 +1,9 @@
 # Audio, karaoke sync and background processing: investigation and rebuild
 
+> Note (November 2026): karaoke has since been removed from Lectern. The playback clock,
+> recording, loudness and noise work described here is still what the performance studio uses;
+> the lyric-timing sections are historical.
+
 ## 1. Root causes found
 
 ### Recording speed (slow / fast audio, pitch shift)

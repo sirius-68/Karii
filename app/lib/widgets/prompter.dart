@@ -1,5 +1,7 @@
 // The teleprompter: a script shown in the performer's chosen style, with a reading line.
 // It is drawn over the camera preview only; the camera records the picture without it.
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../core/model.dart';
@@ -130,7 +132,7 @@ class PrompterView extends StatelessWidget {
           controller: controller,
           physics: physics,
           // the first line starts on the reading line; the last can scroll up past it
-          padding: EdgeInsets.fromLTRB(20, guideY - style.size * style.lineHeight * 0.5, 20, h - guideY + 24),
+          padding: EdgeInsets.fromLTRB(20, math.max(0.0, guideY - style.size * style.lineHeight * 0.5), 20, h - guideY + 24),
           children: [
             for (final r in rows)
               Padding(
