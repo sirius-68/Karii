@@ -22,7 +22,8 @@ void _rm(String? p) {
 /// Deletes a draft's working files (not its finished video if [keepOut]).
 void deleteDraftFiles(Draft d, {bool keepOut = false}) {
   _rm(d.mix);
-  _rm(d.stem);
+  _rm(d.voice);
+  _rm(d.music);
   _rm(d.m['raw'] as String?);
   if (!keepOut) _rm(d.video);
 }
@@ -135,7 +136,11 @@ class _TakeEditorState extends State<TakeEditor> {
   bool busy = false;
 
   bool get isVideo => d.m['isVideo'] == true;
-  bool get canResync => isVideo && d.m['raw'] != null && File('${d.m['raw']}').existsSync() && d.mix != null && File(d.mix!).existsSync();
+  late double balance = ((d.edit['balance'] as num?) ?? 0).toDouble();
+  bool get hasStems => d.voice != null && File(d.voice!).existsSync();
+  bool get canResync => isVideo && d.m['raw'] != null && File('${d.m['raw']}').existsSync() && hasStems;
+  bool get canBalance => hasStems && d.music != null && File(d.music!).existsSync();
+  Map<String, dynamic> get mixInfo => ((d.meta['mix'] as Map?) ?? {}).cast<String, dynamic>();
 
   @override
   void dispose() {
@@ -145,20 +150,31 @@ class _TakeEditorState extends State<TakeEditor> {
     super.dispose();
   }
 
-  Future<void> resync() async {
+  /// Re-mixes the take from its stems with the chosen sync and music level.
+  Future<void> remix() async {
     setState(() => busy = true);
     await player.currentState?.pause();
     try {
       final base = ((d.meta['offset'] as num?) ?? 0).toDouble();
-      final tmp = '${d.video}.tmp.mp4';
-      await Engine.i.mux(video: '${d.m['raw']}', audio: d.mix!, out: tmp, offset: base + delta, rate: ((d.meta['rate'] as num?) ?? 48000).toInt());
+      final tmp = '${d.video}.tmp${isVideo ? '.mp4' : '.m4a'}';
+      final mix = await Engine.i.finishTake(
+        voice: d.voice!,
+        music: d.music,
+        mode: ((d.meta['modeIndex'] as num?) ?? 0).toInt(),
+        wav: '${d.video}.mix.wav',
+        out: tmp,
+        video: isVideo ? '${d.m['raw']}' : null,
+        offset: isVideo ? base + delta : null,
+        balance: balance,
+      );
       await File(tmp).rename(d.video);
-      d.edit = {...d.edit, 'delta': delta};
+      d.edit = {...d.edit, 'delta': delta, 'balance': balance};
+      d.m['meta'] = {...d.meta, 'mix': {...mix.toJson(), 'offset': base}};
       Store.i.save();
       await player.currentState?.open();
-      if (mounted) toast(context, delta == 0 ? 'Sync reset' : 'Sync adjusted by ${(delta * 1000).round()} ms');
+      if (mounted) toast(context, 'Updated · ${mix.lufs.toStringAsFixed(1)} LUFS');
     } catch (e) {
-      if (mounted) toast(context, 'Couldn’t adjust the sync: $e');
+      if (mounted) toast(context, 'Couldn’t update the take: $e');
     }
     if (mounted) setState(() => busy = false);
   }
@@ -247,7 +263,7 @@ class _TakeEditorState extends State<TakeEditor> {
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(color: const Color(0x22F43F5E), borderRadius: BorderRadius.circular(14)),
               child: Text(
-                'The phone struggled to keep up during this take (${((h['underrun'] as num?) ?? 0).toStringAsFixed(1)} s of audio gaps). '
+                'The phone struggled to keep up during this take (${((h['gap'] as num?) ?? 0).toStringAsFixed(1)} s of audio gaps). '
                 'Closing other apps or turning off battery saver helps.',
                 style: const TextStyle(color: C.ink2, fontSize: 13.5),
               ),
@@ -265,9 +281,26 @@ class _TakeEditorState extends State<TakeEditor> {
             ]),
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton(onPressed: resync, child: Text('Apply ${delta >= 0 ? '+' : ''}${(delta * 1000).round()} ms')),
+              child: TextButton(onPressed: remix, child: Text('Apply ${delta >= 0 ? '+' : ''}${(delta * 1000).round()} ms')),
             ),
           ],
+          if (canBalance) ...[
+            const SizedBox(height: 18),
+            const Text('Music level', style: TextStyle(fontWeight: FontWeight.w700)),
+            const Text('How loud the backing track is under your voice.', style: TextStyle(color: C.muted, fontSize: 13)),
+            Row(children: [
+              const Text('Quieter', style: TextStyle(color: C.muted, fontSize: 12)),
+              Expanded(child: Slider(value: balance, min: -12, max: 6, divisions: 18, label: '${balance >= 0 ? '+' : ''}${balance.round()} dB', onChanged: (v) => setState(() => balance = v))),
+              const Text('Louder', style: TextStyle(color: C.muted, fontSize: 12)),
+            ]),
+            Align(alignment: Alignment.centerRight, child: TextButton(onPressed: remix, child: const Text('Apply'))),
+          ],
+          if (mixInfo['lufs'] is num && mixInfo['truePeak'] is num)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('Loudness ${(mixInfo['lufs'] as num).toStringAsFixed(1)} LUFS · peak ${(mixInfo['truePeak'] as num).toStringAsFixed(1)} dBTP',
+                  style: const TextStyle(color: C.faint, fontSize: 12)),
+            ),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,

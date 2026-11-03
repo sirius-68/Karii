@@ -100,8 +100,8 @@ class _RecorderState extends State<Recorder> with SingleTickerProviderStateMixin
     }
     final id = Store.uid();
     stem = Store.i.mediaPath('snd-$id-voice.wav');
-    mix = Store.i.mediaPath('snd-$id-mix.wav');
-    if (!await e.startRecord(mix!, stem!)) {
+    mix = Store.i.mediaPath('snd-$id.m4a');
+    if (!await e.startRecord(stem!)) {
       await e.closeMic();
       if (mounted) toast(context, 'Recording couldn’t start.');
       return;
@@ -121,6 +121,12 @@ class _RecorderState extends State<Recorder> with SingleTickerProviderStateMixin
     await e.pause();
     await e.closeMic();
     secs = res.seconds;
+    // loudness-normalised preview (and what gets saved)
+    try {
+      await e.finishTake(voice: stem!, mode: 0, wav: '${mix!}.wav', out: mix!);
+    } catch (err) {
+      if (mounted) toast(context, 'Couldn’t process the recording: $err');
+    }
     setState(() {
       recording = false;
       busy = false;
@@ -133,7 +139,7 @@ class _RecorderState extends State<Recorder> with SingleTickerProviderStateMixin
     final id = 'snd-${Store.uid()}';
     final file = '$id.m4a';
     try {
-      await e.wavToM4a(stem!, Store.i.mediaPath(file));
+      await File(mix!).rename(Store.i.mediaPath(file));
     } catch (err) {
       if (mounted) toast(context, 'Couldn’t save the sound: $err');
       setState(() => busy = false);
@@ -151,7 +157,7 @@ class _RecorderState extends State<Recorder> with SingleTickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
-    final done = !recording && stem != null && File(stem!).existsSync();
+    final done = !recording && mix != null && File(mix!).existsSync();
     return Scaffold(
       appBar: AppBar(title: const Text('Sound recorder')),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 40), children: [
@@ -194,7 +200,7 @@ class _RecorderState extends State<Recorder> with SingleTickerProviderStateMixin
         ]),
         if (done) ...[
           const SizedBox(height: 26),
-          Player(key: ValueKey(stem), path: stem!, video: false),
+          Player(key: ValueKey(mix), path: mix!, video: false),
           TextField(controller: name, maxLength: 40, decoration: const InputDecoration(labelText: 'Name')),
           const SizedBox(height: 8),
           Row(children: [

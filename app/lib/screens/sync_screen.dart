@@ -53,14 +53,27 @@ class _SyncScreenState extends State<SyncScreen> with SingleTickerProviderStateM
     _ticker.start();
   }
 
-  Future<void> _tick() async {
+  // the audio clock, read synchronously each frame: taps are stamped with what is heard now
+  void _tick() {
+    final s = e.clock.ok ? e.clock.state : null;
+    if (s == null) {
+      _pollFallback();
+      return;
+    }
+    _apply(s);
+  }
+
+  Future<void> _pollFallback() async {
     if (_polling) return;
     _polling = true;
     final s = await e.state();
     _polling = false;
-    if (!mounted) return;
+    if (mounted) _apply(s);
+  }
+
+  void _apply(EngineState s) {
     setState(() {
-      t = e.visualTime(s);
+      t = s.pos;
       playing = s.playing;
       if (s.duration > 0) dur = s.duration;
     });

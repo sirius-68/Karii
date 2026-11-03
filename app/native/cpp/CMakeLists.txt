@@ -31,6 +31,6 @@ else()
 endif()
 FetchContent_MakeAvailable(whisper)
 
-add_library(lectern SHARED engine.cpp jni.cpp stt.cpp)
+add_library(lectern SHARED core.cpp engine.cpp jni.cpp transcribe.cpp stt.cpp)
 target_compile_options(lectern PRIVATE -O3 -ffast-math -Wall)
 target_link_libraries(lectern oboe::oboe whisper log android)

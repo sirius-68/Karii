@@ -13,6 +13,7 @@ import '../core/model.dart';
 import '../core/store.dart';
 import '../engine/engine.dart';
 import '../lyrics/karaoke.dart';
+import '../widgets/job_pill.dart';
 import '../lyrics/timing.dart';
 import '../widgets/ui.dart';
 import 'take_editor.dart';
@@ -41,10 +42,17 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
   Phase phase = Phase.loading;
   MusicSource music = MusicSource.empty;
   bool hasMusic = false;
-  Karaoke? kara;
+  LyricTrack lyr = LyricTrack.empty;
   late final Ticker _ticker;
   bool _polling = false;
-  double t = 0, dur = 0, micDb = -90;
+  // the audio clock (seconds into the song the listener hears now), updated every frame;
+  // only the widgets that depend on it rebuild
+  final ValueNotifier<double> clockT = ValueNotifier(0);
+  double get t => clockT.value;
+  double _lastPos = 0;
+  Duration _lastHeader = Duration.zero;
+  StreamSubscription<String>? _audioEv;
+  double dur = 0, micDb = -90;
   bool playing = false;
   int count = 0;
   Timer? _countT;
@@ -57,7 +65,7 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
 
   // take
   final Stopwatch watch = Stopwatch();
-  String? takeId, mixPath, stemPath;
+  String? takeId, voicePath, musicPath;
   int engineRate = 48000;
   RecMode mode = RecMode.mic;
   bool videoRecording = false;
@@ -70,6 +78,19 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _ticker = createTicker(_tick);
     e.addListener(_onEngine);
+    JobPill.hiddenBy.value++;
+    // a phone call or another app took the audio: pause instead of recording silence
+    _audioEv = e.audioEvents.listen((ev) {
+      if (ev != 'interrupted' || !mounted) return;
+      if (phase == Phase.recording) {
+        pauseTake();
+        toast(context, 'Paused: another app is using the audio');
+      } else if (phase == Phase.countdown) {
+        _cancelCountdown();
+      } else if (phase == Phase.ready && playing) {
+        e.pause();
+      }
+    });
     _setup();
   }
 
@@ -118,7 +139,13 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
     } else {
       await e.unload();
     }
-    if (song) kara = Karaoke.of(it, dur > 0 ? dur : it.dur);
+    if (song) {
+      // all lyric sources become one normalised track; stale timing is re-aligned first
+      lyr = LyricTrack.of(it, dur > 0 ? dur : it.dur);
+      if (!it.isCat) st.save();
+    }
+    clockT.value = 0;
+    _lastPos = 0;
   }
 
   Future<void> _initCam({CameraLensDirection? dir}) async {
@@ -179,7 +206,7 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
   }
 
   // ------------------------------------------------------------------ frame loop
-  Future<void> _tick(Duration elapsed) async {
+  void _tick(Duration elapsed) {
     final dt = ((elapsed - _lastTick).inMicroseconds / 1e6).clamp(0.0, 0.1);
     _lastTick = elapsed;
     if (!song && (prompting || phase == Phase.recording) && scroll.hasClients) {
@@ -187,18 +214,43 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
       final max = scroll.position.maxScrollExtent;
       if (scroll.offset < max) scroll.jumpTo(math.min(max, scroll.offset + pxs * dt));
     }
+    if (!e.clock.ok) {
+      _pollFallback();
+      return;
+    }
+    _apply(e.clock.state, elapsed);
+  }
+
+  Future<void> _pollFallback() async {
     if (_polling) return;
     _polling = true;
     final s = await e.state();
     _polling = false;
-    if (!mounted) return;
-    final vt = e.visualTime(s);
-    setState(() {
-      t = hasMusic ? vt : watch.elapsedMilliseconds / 1000;
+    if (mounted) _apply(s, _lastTick);
+  }
+
+  void _apply(EngineState s, Duration elapsed) {
+    // The position is the audio hardware clock: no smoothing, no timers. Only sub-frame jitter
+    // from a fresh hardware timestamp is held back so a word never flickers backwards.
+    var pos = s.pos;
+    if (s.playing && pos < _lastPos && _lastPos - pos < 0.03) pos = _lastPos;
+    _lastPos = pos;
+    clockT.value = hasMusic ? pos : watch.elapsedMilliseconds / 1000;
+    micDb = s.micDb;
+    var rebuild = false;
+    if (s.playing != playing) {
       playing = s.playing;
-      micDb = s.micDb;
-      if (s.duration > 0) dur = s.duration;
-    });
+      rebuild = true;
+    }
+    if (s.duration > 0 && (s.duration - dur).abs() > 0.01) {
+      dur = s.duration;
+      rebuild = true;
+    }
+    if ((phase == Phase.recording || phase == Phase.paused) && elapsed - _lastHeader > const Duration(milliseconds: 200)) {
+      _lastHeader = elapsed;
+      rebuild = true;  // recording time and level meter
+    }
+    if (rebuild && mounted) setState(() {});
     // the song finished: end the take
     if (phase == Phase.recording && hasMusic && song && !s.playing && dur > 0 && s.pos >= dur - 0.35) stopTake();
   }
@@ -222,7 +274,8 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
     if (phase != Phase.ready) return;
     await e.seek(0);
     if (scroll.hasClients) scroll.jumpTo(0);
-    setState(() => t = 0);
+    _lastPos = 0;
+    clockT.value = 0;
   }
 
   // ------------------------------------------------------------------ recording
@@ -241,6 +294,7 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
     prompting = false;
     await e.pause();
     await e.seek(0);
+    _lastPos = 0;
     if (scroll.hasClients) scroll.jumpTo(0);
     mode = _plan();
     final r = await e.openMic(mode: mode, nc: st.s<bool>('noiseCancel'), gainDb: st.sd('micGain'));
@@ -276,8 +330,9 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
 
   Future<void> _go() async {
     takeId = Store.uid();
-    mixPath = st.mediaPath('take-$takeId-mix.wav');
-    stemPath = st.mediaPath('take-$takeId-voice.wav');
+    voicePath = st.mediaPath('take-$takeId-voice.wav');
+    // clean mixes keep the music the singer heard, sample-aligned with the voice
+    musicPath = (mode == RecMode.mix || mode == RecMode.mixAec) ? st.mediaPath('take-$takeId-music.wav') : null;
     videoRecording = false;
     if (camOn && cam != null && cam!.value.isInitialized) {
       try {
@@ -287,7 +342,7 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
         debugPrint('video start: $err');
       }
     }
-    final ok = await e.startRecord(mixPath!, stemPath!);
+    final ok = await e.startRecord(voicePath!, music: musicPath ?? '');
     if (!ok) {
       if (videoRecording) {
         try {
@@ -338,37 +393,40 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
     if (phase != Phase.recording && phase != Phase.paused) return;
     setState(() => phase = Phase.saving);
     watch.stop();
-    final res = await e.stopRecord();
+    // stop the camera and the mic together and note when each stopped, so the two can be lined
+    // up exactly (the mic's last sample has a hardware capture time)
+    final videoStopNs = e.clock.monoNs;
+    final fv = videoRecording ? cam!.stopVideoRecording().then<XFile?>((x) => x, onError: (err) {
+      debugPrint('video stop: $err');
+      return null;
+    }) : Future<XFile?>.value(null);
+    final fa = e.stopRecord();
+    final res = await fa;
+    final vf = await fv;
     if (hasMusic) await e.pause();
-    XFile? vf;
-    if (videoRecording) {
-      try {
-        vf = await cam!.stopVideoRecording();
-      } catch (err) {
-        debugPrint('video stop: $err');
-      }
-    }
     await e.closeMic();
     if (discard) {
-      for (final p in [mixPath, stemPath, vf?.path]) {
+      for (final p in [voicePath, musicPath, vf?.path]) {
         if (p != null) _rm(p);
       }
       if (mounted) setState(() => phase = Phase.ready);
       await e.seek(0);
       return;
     }
-    String out;
-    double offset = 0;
-    bool video = false;
+    final video = vf != null;
+    final out = st.mediaPath(video ? 'take-$takeId.mp4' : 'take-$takeId.m4a');
+    TakeMix mix;
     try {
-      if (vf != null) {
-        out = st.mediaPath('take-$takeId.mp4');
-        offset = await e.mux(video: vf.path, audio: mixPath!, out: out, rate: engineRate);
-        video = true;
-      } else {
-        out = st.mediaPath('take-$takeId.m4a');
-        await e.wavToM4a(mixPath!, out);
-      }
+      mix = await e.finishTake(
+        voice: voicePath!,
+        music: musicPath,
+        mode: mode.index,
+        wav: st.mediaPath('take-$takeId-mix.wav'),
+        out: out,
+        video: vf?.path,
+        videoStopNs: videoStopNs,
+        audioEndNs: res.lastCaptureNs,
+      );
     } catch (err) {
       if (mounted) {
         toast(context, 'The take couldn’t be put together: $err');
@@ -382,17 +440,19 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
       'itemId': it.id,
       'video': out,
       'isVideo': video,
-      'mix': mixPath,
-      'stem': stemPath,
+      'voice': voicePath,
+      'music': musicPath,
       'raw': vf?.path,
       'dur': res.seconds,
       'created': DateTime.now().millisecondsSinceEpoch,
       'meta': {
         'mode': mode.name,
+        'modeIndex': mode.index,
         'route': e.route.label,
         'nc': st.s<bool>('noiseCancel'),
-        'offset': offset,
-        'rate': engineRate,
+        'offset': mix.offset,
+        'mix': mix.toJson(),
+        'rate': res.rate,
         'health': res.toJson(),
         'struggled': res.struggled,
       },
@@ -424,11 +484,12 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
     WidgetsBinding.instance.removeObserver(this);
     _ticker.dispose();
     _countT?.cancel();
+    _audioEv?.cancel();
     e.removeListener(_onEngine);
-    if (phase == Phase.recording || phase == Phase.paused || phase == Phase.countdown) {
-      e.stopRecord().catchError((_) => TakeResult(const [0, 0, 0, 0, 0, 0]));
-      e.closeMic();
-    }
+    JobPill.hiddenBy.value--;
+    // leaving mid-take: release the mic and the recorder (the take is dropped)
+    if (phase == Phase.recording || phase == Phase.paused || phase == Phase.countdown) e.closeMic();
+    clockT.dispose();
     e.pause();
     e.keepAwake(false);
     cam?.dispose();
@@ -687,16 +748,20 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
     );
   }
 
-  // ---- karaoke lyrics
+  // ---- karaoke lyrics (rebuilt every frame from the audio clock; nothing else is)
   Widget _karaoke() {
-    final k = kara;
-    if (k == null || k.length == 0) return const SizedBox();
-    final lt = t - it.offset;
-    final f = k.frame(lt);
+    if (lyr.length == 0) return const SizedBox();
+    return ValueListenableBuilder<double>(valueListenable: clockT, builder: (_, t, __) => _karaokeAt(t));
+  }
+
+  Widget _karaokeAt(double t) {
+    final k = lyr;
+    final f = k.at(t - it.offset);
     final size = st.sd('textSize');
     final base = TextStyle(fontSize: size, fontWeight: FontWeight.w800, height: 1.2, shadows: const [Shadow(blurRadius: 12, color: Colors.black87)]);
     final show = f.show < 0 ? 0 : f.show;
-    final sung = f.show >= 0 && f.show == f.idx;
+    // only the line actually being sung is lit; the upcoming line during intros and pauses is not
+    final lit = !f.intro && f.show == f.line;
     Widget line(int i, {double scale = 0.62, double alpha = 0.55}) => i < 0 || i >= k.length
         ? SizedBox(height: size * scale * 1.3)
         : Padding(
@@ -717,7 +782,7 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
               for (var d = 0; d < 3; d++) Container(margin: const EdgeInsets.all(4), width: 10, height: 10, decoration: BoxDecoration(shape: BoxShape.circle, color: d < f.dots ? C.brand : Colors.white24)),
             ]),
           ),
-        _kLine(k.lines[show], sung ? f.fill : const [], base, sung),
+        _kLine(k.lines[show], lit ? f.fill : const [], base, lit),
         const SizedBox(height: 12),
         line(show + 1, alpha: 0.6),
         line(show + 2, scale: 0.52, alpha: 0.35),
@@ -725,10 +790,10 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _kLine(KaraLine l, List<double> fill, TextStyle base, bool active) {
+  Widget _kLine(LLine l, List<double> fill, TextStyle base, bool active) {
     final space = (base.fontSize ?? 30) * 0.28;
     return Wrap(alignment: WrapAlignment.center, spacing: space, runSpacing: 2, children: [
-      for (var i = 0; i < l.words.length; i++) _KWord(l.words[i], i < fill.length ? fill[i] : 0, base, active),
+      for (var i = 0; i < l.words.length; i++) _KWord(l.words[i].text, i < fill.length ? fill[i] : 0, base, active),
     ]);
   }
 
@@ -772,7 +837,9 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
     final rec = phase == Phase.recording || phase == Phase.paused;
     return Column(mainAxisSize: MainAxisSize.min, children: [
       if (hasMusic)
-        Padding(
+        ValueListenableBuilder<double>(
+          valueListenable: clockT,
+          builder: (_, t, __) => Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(children: [
             SizedBox(width: 44, child: Text(fmtTime(seekDrag ?? t), style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontFeatures: [FontFeature.tabularFigures()]))),
@@ -794,7 +861,7 @@ class _StageScreenState extends State<StageScreen> with SingleTickerProviderStat
             ),
             SizedBox(width: 44, child: Text(fmtTime(dur), textAlign: TextAlign.right, style: const TextStyle(color: Colors.white70, fontSize: 12.5))),
           ]),
-        ),
+        )),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(children: [

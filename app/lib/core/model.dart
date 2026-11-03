@@ -99,7 +99,9 @@ class Draft {
   String get id => '${m['id']}';
   String get title => (m['title'] as String?) ?? 'Take';
   String get video => '${m['video']}';
-  String? get stem => m['stem'] as String?;
+  /// Voice recording (32-bit float WAV) and, for clean mixes, the music the singer heard.
+  String? get voice => (m['voice'] ?? m['stem']) as String?;
+  String? get music => m['music'] as String?;
   String? get mix => m['mix'] as String?;
   String? get itemId => m['itemId'] as String?;
   double get dur => _d(m['dur']) ?? 0;

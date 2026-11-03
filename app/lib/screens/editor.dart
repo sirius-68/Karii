@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../core/jobs.dart';
 import '../core/media.dart';
 import '../core/model.dart';
 import '../core/store.dart';
@@ -23,6 +26,19 @@ class _EditorScreenState extends State<EditorScreen> {
   late final TextEditingController title = TextEditingController(text: widget.item.rawTitle);
   late final TextEditingController body = TextEditingController(text: widget.item.body);
   Item get it => widget.item;
+  StreamSubscription<Job>? _jobDone;
+
+  @override
+  void initState() {
+    super.initState();
+    // a background transcription for this song finished: show its lyrics and timing
+    _jobDone = Jobs.i.finished.listen((j) {
+      if (j.itemId != it.id || !mounted) return;
+      title.text = it.rawTitle;
+      body.text = it.body;
+      setState(() {});
+    });
+  }
 
   void save() {
     it.title = title.text.replaceAll('\n', ' ');
@@ -33,6 +49,7 @@ class _EditorScreenState extends State<EditorScreen> {
 
   @override
   void dispose() {
+    _jobDone?.cancel();
     save();
     final msg = retimeIfLyricsChanged(it);
     if (msg != null) Store.i.save();
@@ -156,8 +173,7 @@ class _EditorScreenState extends State<EditorScreen> {
                     : () async {
                         save();
                         await aiSync(context, it, generate: lines.isEmpty);
-                        body.text = it.body;
-                        setState(() {});
+                        if (mounted) setState(() {});
                       },
                 icon: const Icon(Icons.auto_awesome),
                 label: Text(lines.isEmpty ? 'Lyrics from audio' : 'Sync with AI'),
@@ -176,6 +192,26 @@ class _EditorScreenState extends State<EditorScreen> {
                     child: const Text('Clear timing', style: TextStyle(color: C.muted))),
             ]),
             if (src.none) const Padding(padding: EdgeInsets.only(top: 8), child: Text('Add music first to sync the lyrics to it.', style: TextStyle(color: C.faint, fontSize: 12.5))),
+            AnimatedBuilder(
+              animation: Jobs.i,
+              builder: (_, __) {
+                final j = Jobs.i.forItem(it.id);
+                if (j == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Row(children: [
+                    if (j.active)
+                      SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, value: j.progress > 1 ? j.progress / 100 : null))
+                    else
+                      const Icon(Icons.error_outline, size: 18, color: C.hot),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(j.label, style: const TextStyle(color: C.muted, fontSize: 13))),
+                    if (j.active) TextButton(onPressed: () => Jobs.i.cancel(j), child: const Text('Cancel')),
+                    if (!j.active) TextButton(onPressed: () => Jobs.i.retry(j), child: const Text('Retry')),
+                  ]),
+                );
+              },
+            ),
           ])),
         ],
         const SizedBox(height: 8),

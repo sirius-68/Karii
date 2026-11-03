@@ -47,7 +47,7 @@ def patch_gradle():
             abiFilters += listOf("arm64-v8a")
         }
 '''
-        deps = '\ndependencies {\n    implementation("com.google.oboe:oboe:1.9.3")\n}\n'
+        deps = '\ndependencies {\n    implementation("com.google.oboe:oboe:1.9.3")\n    testImplementation("junit:junit:4.13.2")\n    testImplementation("org.json:json:20240303")\n}\n'
     else:
         android_add = '''
     // lectern-native: C++ audio engine
@@ -58,7 +58,7 @@ def patch_gradle():
         externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared' } }
         ndk { abiFilters 'arm64-v8a' }
 '''
-        deps = "\ndependencies {\n    implementation 'com.google.oboe:oboe:1.9.3'\n}\n"
+        deps = "\ndependencies {\n    implementation 'com.google.oboe:oboe:1.9.3'\n    testImplementation 'junit:junit:4.13.2'\n    testImplementation 'org.json:json:20240303'\n}\n"
     s = re.sub(r'(\nandroid\s*\{)', r'\1' + android_add.replace('\\', '\\\\'), s, count=1)
     s = re.sub(r'(defaultConfig\s*\{)', r'\1' + default_add.replace('\\', '\\\\'), s, count=1)
     s += deps
@@ -78,6 +78,10 @@ def patch_manifest():
         'android.permission.BLUETOOTH_CONNECT',
         'android.permission.READ_MEDIA_AUDIO',
         'android.permission.READ_MEDIA_VIDEO',
+        'android.permission.FOREGROUND_SERVICE',
+        'android.permission.FOREGROUND_SERVICE_DATA_SYNC',
+        'android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING',
+        'android.permission.POST_NOTIFICATIONS',
     ]
     add = ''
     for perm in perms:
@@ -91,6 +95,10 @@ def patch_manifest():
         add += '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>\n'
     s = s.replace('<application', add + '    <application', 1)
     s = re.sub(r'android:label="[^"]*"', 'android:label="Lectern"', s, count=1)
+    # background job runner (transcription keeps going when the app is left)
+    if 'JobService' not in s:
+        s = s.replace('</application>', '        <service android:name="com.lectern.lectern.JobService" android:exported="false"\n'
+                      '            android:foregroundServiceType="dataSync|mediaProcessing" />\n    </application>', 1)
     open(p, 'w').write(s)
     print('patched manifest')
 
@@ -105,6 +113,13 @@ def copy_native():
     jdir = os.path.join(MOD, 'src', 'main', 'java', 'com', 'lectern', 'lectern')
     if os.path.exists(os.path.join(jdir, 'MainActivity.java')):
         os.remove(os.path.join(jdir, 'MainActivity.java'))
+    # JVM unit tests for the job queue
+    tsrc = os.path.join(APP, 'native', 'android', 'test')
+    tdst = os.path.join(MOD, 'src', 'test', 'kotlin', 'com', 'lectern', 'lectern')
+    if os.path.isdir(tsrc):
+        os.makedirs(tdst, exist_ok=True)
+        for f in os.listdir(tsrc):
+            shutil.copy(os.path.join(tsrc, f), os.path.join(tdst, f))
     res = os.path.join(APP, 'native', 'android', 'res')
     for d in os.listdir(res):
         out = os.path.join(MOD, 'src', 'main', 'res', d)

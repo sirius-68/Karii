@@ -1,6 +1,10 @@
 // Dart facade for the native audio engine (C++ via Kotlin; see native/).
+// The playback clock is read synchronously through dart:ffi every frame: it is the hardware
+// presentation clock of the audio output, so lyrics follow exactly what the listener hears.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +14,37 @@ class EngineState {
   final bool playing, recording;
   const EngineState(this.pos, this.playing, this.duration, this.micDb, this.recording);
   static const zero = EngineState(0, false, 0, -90, false);
+}
+
+/// Direct, synchronous access to the C++ engine's clock (no platform-channel round trip).
+class NativeClock {
+  NativeClock._() {
+    if (!Platform.isAndroid) return;
+    try {
+      final l = DynamicLibrary.open('liblectern.so');
+      _pos = l.lookupFunction<Double Function(), double Function()>('lectern_position');
+      _dur = l.lookupFunction<Double Function(), double Function()>('lectern_duration');
+      _playing = l.lookupFunction<Int32 Function(), int Function()>('lectern_playing');
+      _rec = l.lookupFunction<Int32 Function(), int Function()>('lectern_recording');
+      _mic = l.lookupFunction<Double Function(), double Function()>('lectern_mic_db');
+      _mono = l.lookupFunction<Int64 Function(), int Function()>('lectern_mono_ns');
+      ok = true;
+    } catch (e) {
+      debugPrint('native clock unavailable: $e');
+    }
+  }
+  static final NativeClock i = NativeClock._();
+  bool ok = false;
+  double Function()? _pos, _dur, _mic;
+  int Function()? _playing, _rec, _mono;
+
+  double get position => _pos?.call() ?? 0;
+  double get duration => _dur?.call() ?? 0;
+  bool get playing => (_playing?.call() ?? 0) != 0;
+  bool get recording => (_rec?.call() ?? 0) != 0;
+  double get micDb => _mic?.call() ?? -90;
+  int get monoNs => _mono?.call() ?? DateTime.now().microsecondsSinceEpoch * 1000;
+  EngineState get state => EngineState(position, playing, duration, micDb, recording);
 }
 
 class AudioRoute {
@@ -39,33 +74,60 @@ class AudioRoute {
       'Phone speaker';
 }
 
-/// How a take is captured (see the web app's rec.js for the reasoning).
+/// How a take is captured.
+///  mic: the microphone only (no music, or music the user doesn't want in the take)
+///  acoustic: the mic hears the music from the phone speaker (natural room sound)
+///  mix: headphones; the voice is recorded alone and the music is mixed in cleanly
+///  mixAec: speaker with echo cancellation, then a clean mix
 enum RecMode { mic, acoustic, mix, mixAec }
 
-class TakeResult {
-  final double seconds, musicOffset, underrunSec, dropSec;
-  final int outXruns, inXruns;
-  TakeResult(List<dynamic> v)
+class RecResult {
+  final double seconds, rate, gapSec, lostSec;
+  final int firstCaptureNs, lastCaptureNs, musicJumps, outXruns, inXruns;
+  final bool hasMusic;
+  RecResult(List<dynamic> v)
       : seconds = (v[0] as num).toDouble(),
-        musicOffset = (v[1] as num).toDouble(),
-        underrunSec = (v[2] as num).toDouble(),
-        dropSec = (v[3] as num).toDouble(),
-        outXruns = (v[4] as num).toInt(),
-        inXruns = (v[5] as num).toInt();
-  bool get struggled => underrunSec > 0.3 || outXruns > 20;
+        rate = (v[1] as num).toDouble(),
+        firstCaptureNs = (v[2] as num).toInt(),
+        lastCaptureNs = (v[3] as num).toInt(),
+        gapSec = (v[4] as num).toDouble(),
+        lostSec = (v[5] as num).toDouble(),
+        musicJumps = (v[6] as num).toInt(),
+        hasMusic = (v[7] as num) > 0.5,
+        outXruns = (v[8] as num).toInt(),
+        inXruns = (v[9] as num).toInt();
+  bool get struggled => gapSec > 0.25 || lostSec > 0;
   Map<String, dynamic> toJson() => {
         'seconds': seconds,
-        'musicOffset': musicOffset,
-        'underrun': underrunSec,
-        'drop': dropSec,
+        'rate': rate,
+        'gap': gapSec,
+        'lost': lostSec,
+        'jumps': musicJumps,
         'outXruns': outXruns,
         'inXruns': inXruns,
       };
 }
 
+class TakeMix {
+  final double offset, lufs, truePeak, voiceLufs, musicLufs, gain, seconds;
+  TakeMix(Map m)
+      : offset = (m['offset'] as num?)?.toDouble() ?? 0,
+        lufs = (m['lufs'] as num?)?.toDouble() ?? -120,
+        truePeak = (m['truePeak'] as num?)?.toDouble() ?? -120,
+        voiceLufs = (m['voiceLufs'] as num?)?.toDouble() ?? -120,
+        musicLufs = (m['musicLufs'] as num?)?.toDouble() ?? -120,
+        gain = (m['gain'] as num?)?.toDouble() ?? 0,
+        seconds = (m['seconds'] as num?)?.toDouble() ?? 0;
+  Map<String, dynamic> toJson() => {'offset': offset, 'lufs': lufs, 'truePeak': truePeak, 'voiceLufs': voiceLufs, 'musicLufs': musicLufs, 'gain': gain};
+}
+
 class Engine extends ChangeNotifier {
   Engine._() {
     _route.receiveBroadcastStream().listen((e) {
+      if (e is Map && e['event'] != null) {
+        _events.add('${e['event']}');
+        return;
+      }
       route = AudioRoute.from(e);
       notifyListeners();
     }, onError: (_) {});
@@ -73,6 +135,10 @@ class Engine extends ChangeNotifier {
   static final Engine i = Engine._();
   static const _ch = MethodChannel('lectern/engine');
   static const _route = EventChannel('lectern/route');
+  final _events = StreamController<String>.broadcast();
+
+  /// "interrupted" (a call or another app took the audio) and "resumed".
+  Stream<String> get audioEvents => _events.stream;
 
   String? loadedKey;
   double duration = 0;
@@ -80,11 +146,9 @@ class Engine extends ChangeNotifier {
   double rate = 1;
   double volume = 0.8;
   AudioRoute route = AudioRoute.speaker;
-  EngineState last = EngineState.zero;
+  int _loadSeq = 0;
 
-  // smoothed position for drawing lyrics (glides over tiny jumps, takes big ones at once)
-  double _vt = 0;
-  int _vw = 0;
+  NativeClock get clock => NativeClock.i;
 
   Future<void> start() async {
     try {
@@ -95,30 +159,38 @@ class Engine extends ChangeNotifier {
     }
   }
 
-  /// Loads a track once; key identifies it (asset path, file path or URL).
+  /// Loads a track once; key identifies it (asset path, file path or URL). Only the newest
+  /// request wins, so a slow decode can never replace a song that was asked for later.
   Future<bool> load({String? asset, String? path, String? url}) async {
     final key = asset ?? path ?? url;
     if (key == null) return false;
-    if (loadedKey == key && duration > 0) return true;
+    if (loadedKey == key && duration > 0 && clock.duration > 0) return true;
+    final seq = ++_loadSeq;
     loading = true;
     notifyListeners();
     try {
       final r = await _ch.invokeMapMethod<String, dynamic>('load', {'asset': asset, 'path': path, 'url': url});
+      if (seq != _loadSeq || r?['stale'] == true) return false;
       duration = (r?['duration'] as num?)?.toDouble() ?? 0;
       loadedKey = key;
       return duration > 0;
     } catch (e) {
       debugPrint('load failed: $e');
-      loadedKey = null;
-      duration = 0;
+      if (seq == _loadSeq) {
+        loadedKey = null;
+        duration = 0;
+      }
       return false;
     } finally {
-      loading = false;
-      notifyListeners();
+      if (seq == _loadSeq) {
+        loading = false;
+        notifyListeners();
+      }
     }
   }
 
   Future<void> unload() async {
+    _loadSeq++;
     loadedKey = null;
     duration = 0;
     await _ch.invokeMethod('unload');
@@ -126,10 +198,7 @@ class Engine extends ChangeNotifier {
 
   Future<void> play() => _ch.invokeMethod('play');
   Future<void> pause() => _ch.invokeMethod('pause');
-  Future<void> seek(double sec) {
-    _vt = sec;
-    return _ch.invokeMethod('seek', {'sec': sec.toDouble()});
-  }
+  Future<void> seek(double sec) => _ch.invokeMethod('seek', {'sec': sec.toDouble()});
 
   Future<void> setRate(double r) {
     rate = r;
@@ -141,45 +210,21 @@ class Engine extends ChangeNotifier {
     return _ch.invokeMethod('volume', {'v': v.toDouble()});
   }
 
+  /// Current state, read synchronously from the engine (falls back to the platform channel).
   Future<EngineState> state() async {
+    if (clock.ok) return clock.state;
     try {
       final v = await _ch.invokeListMethod<dynamic>('state');
-      if (v == null || v.length < 5) return last;
-      last = EngineState((v[0] as num).toDouble(), (v[1] as num) > 0.5, (v[2] as num).toDouble(), (v[3] as num).toDouble(), (v[4] as num) > 0.5);
-    } catch (_) {}
-    return last;
-  }
-
-  /// Visual time: follows the audio clock but never jumps backwards or skips on jitter.
-  double visualTime(EngineState s) {
-    final now = DateTime.now().microsecondsSinceEpoch;
-    if (!s.playing) {
-      _vt = s.pos;
-      _vw = now;
-      return s.pos;
+      if (v == null || v.length < 5) return EngineState.zero;
+      return EngineState((v[0] as num).toDouble(), (v[1] as num) > 0.5, (v[2] as num).toDouble(), (v[3] as num).toDouble(), (v[4] as num) > 0.5);
+    } catch (_) {
+      return EngineState.zero;
     }
-    final dt = ((now - _vw) / 1e6).clamp(0.0, 0.25);
-    _vw = now;
-    var v = _vt + dt * rate;
-    final err = s.pos - v;
-    if (err.abs() > 0.6) {
-      v = s.pos;
-    } else {
-      v += err * (dt * 6).clamp(0.0, 1.0);
-    }
-    _vt = v;
-    return v;
   }
 
   // ---------------------------------------------------------------- recording
-  Future<Map<String, dynamic>> openMic({required RecMode mode, bool nc = false, double gainDb = 0, int preset = 0, int deviceId = 0}) async {
-    final s = await _ch.invokeMethod<String>('openMic', {
-      'mode': mode.index,
-      'nc': nc,
-      'gainDb': gainDb.toDouble(),
-      'preset': preset,
-      'deviceId': deviceId,
-    });
+  Future<Map<String, dynamic>> openMic({required RecMode mode, bool nc = false, double gainDb = 0}) async {
+    final s = await _ch.invokeMethod<String>('openMic', {'mode': mode.index, 'nc': nc, 'gainDb': gainDb.toDouble(), 'preset': 0, 'deviceId': 0});
     try {
       return Map<String, dynamic>.from(jsonDecode(s ?? '{}') as Map);
     } catch (_) {
@@ -188,16 +233,43 @@ class Engine extends ChangeNotifier {
   }
 
   Future<void> closeMic() => _ch.invokeMethod('closeMic');
-  Future<bool> startRecord(String mix, String stem) async => (await _ch.invokeMethod<bool>('startRecord', {'mix': mix, 'stem': stem})) ?? false;
+
+  /// Records the voice to [voice] (32-bit float WAV) and, for clean mixes, the music the singer
+  /// heard to [music], sample-aligned with the voice.
+  Future<bool> startRecord(String voice, {String music = ''}) async => (await _ch.invokeMethod<bool>('startRecord', {'voice': voice, 'music': music})) ?? false;
   Future<void> pauseRecord(bool paused) => _ch.invokeMethod('pauseRecord', {'paused': paused});
-  Future<TakeResult> stopRecord() async => TakeResult((await _ch.invokeListMethod<dynamic>('stopRecord'))!);
+  Future<RecResult> stopRecord() async => RecResult((await _ch.invokeListMethod<dynamic>('stopRecord'))!);
   Future<void> setNC(bool on) => _ch.invokeMethod('nc', {'on': on});
   Future<void> setMicGain(double db) => _ch.invokeMethod('micGain', {'db': db.toDouble()});
-  Future<double> outputLatency() async => (await _ch.invokeMethod<double>('outputLatency')) ?? 0;
 
-  Future<double> mux({required String video, required String audio, required String out, double? offset, int rate = 48000}) async {
-    final r = await _ch.invokeMapMethod<String, dynamic>('mux', {'video': video, 'audio': audio, 'out': out, 'offset': offset, 'rate': rate});
-    return (r?['offset'] as num?)?.toDouble() ?? 0;
+  /// Mixes a take with loudness normalisation (-14 LUFS, -1 dBTP) and puts it into the video
+  /// (or an .m4a when there is no video). [offset] null = line up video and audio from the
+  /// measured stop times.
+  Future<TakeMix> finishTake({
+    required String voice,
+    String? music,
+    required int mode,
+    required String wav,
+    required String out,
+    String? video,
+    double? offset,
+    int? videoStopNs,
+    int? audioEndNs,
+    double balance = 0,
+  }) async {
+    final r = await _ch.invokeMapMethod<String, dynamic>('finishTake', {
+      'voice': voice,
+      'music': music ?? '',
+      'mode': mode,
+      'wav': wav,
+      'out': out,
+      'video': video,
+      'offset': offset,
+      'videoStopNs': videoStopNs,
+      'audioEndNs': audioEndNs,
+      'balance': balance,
+    });
+    return TakeMix(r ?? {});
   }
 
   Future<void> wavToM4a(String wav, String out) => _ch.invokeMethod('wavToM4a', {'wav': wav, 'out': out});
@@ -211,7 +283,11 @@ class Engine extends ChangeNotifier {
     return route;
   }
 
-  Future<void> preferMic(String mic) => _ch.invokeMethod('preferMic', {'mic': mic});
+  /// Where the voice is in a song: [start, end] regions (seconds).
+  Future<List<List<double>>> analyzeVocals({String? asset, String? path, String? url}) async {
+    final s = await _ch.invokeMethod<String>('analyzeVocals', {'asset': asset, 'path': path, 'url': url});
+    return ((jsonDecode(s ?? '[]') as List).map((r) => [((r as List)[0] as num).toDouble(), (r[1] as num).toDouble()])).toList();
+  }
 
   // ---------------------------------------------------------------- system helpers
   Future<bool> requestPermissions(List<String> perms) async => (await _ch.invokeMethod<bool>('permissions', {'perms': perms})) ?? false;
@@ -220,4 +296,3 @@ class Engine extends ChangeNotifier {
   /// Opens the system file picker; the chosen file is copied into the app and its path returned.
   Future<Map<String, dynamic>?> pickFile(String mime) => _ch.invokeMapMethod<String, dynamic>('pickFile', {'mime': mime});
 }
-

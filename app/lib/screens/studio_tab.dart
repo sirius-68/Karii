@@ -19,14 +19,17 @@ class StudioTab extends StatelessWidget {
   Future<void> clipToLines(BuildContext context) async {
     final r = await Engine.i.pickFile('video/*');
     if (r == null || !context.mounted) return;
-    final words = await transcribe(context, MusicSource(path: '${r['path']}'), title: 'Finding the lines', what: 'Lectern listens to the clip and writes out what is said.');
-    if (words == null || !context.mounted) return;
-    final g = wordsToLines(words);
     final it = Store.i.create(Kind.line);
     it.title = '${r['name'] ?? 'Movie clip'}'.replaceAll(RegExp(r'\.[A-Za-z0-9]+$'), '');
-    it.body = g.lines.join('\n');
+    it.m['clip'] = r['path'];
     Store.i.save();
-    toast(context, 'Found ${g.lines.length} lines. Edit them, then perform.');
+    final ok = await startTranscription(context, it,
+        purpose: 'clip', title: 'Finding the lines', what: 'Lectern listens to the clip and writes out what is said.', source: MusicSource(path: '${r['path']}'));
+    if (!context.mounted) return;
+    if (!ok) {
+      Store.i.deleteItem(it);
+      return;
+    }
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => EditorScreen(item: it)));
   }
 

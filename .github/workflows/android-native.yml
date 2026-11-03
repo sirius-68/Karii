@@ -1,6 +1,6 @@
-# Builds the native Lectern app (Flutter + C++ audio engine) for Android.
+# Builds and tests the native Lectern app (Flutter + C++ audio engine) for Android.
 # Runs on every push to main, or by hand from the Actions tab.
-# The APK is published on the "apk" branch as Lectern.apk.
+# The APK and the test report are published on the "apk" branch (Lectern.apk, TEST-REPORT.md).
 name: Build Android APK
 
 on:
@@ -13,7 +13,7 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: app
@@ -47,6 +47,36 @@ jobs:
           set -o pipefail
           flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee ../analyze.log | tee -a ../build.log
 
+      # ---------------------------------------------------------------- tests
+      - name: "Test: audio engine (speed, clock, recording, loudness, noise, vocals)"
+        id: t_engine
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cmake -S native/test -B ../build-tests -DCMAKE_BUILD_TYPE=Release > /dev/null
+          cmake --build ../build-tests -j4 2>&1 | grep -E "error|Built target" | tee -a ../build.log
+          ../build-tests/engine_test 2>&1 | tee ../t_engine.log
+
+      - name: "Test: speech timing on a song with an intro and a break"
+        id: t_asr
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          sudo apt-get install -y -qq espeak-ng > /dev/null
+          pip install --quiet numpy
+          mkdir -p ../asr test/fixtures
+          python3 native/test/gen_song.py ../asr 2>&1 | tee ../t_asr.log
+          curl -sL -o ../asr/ggml-base-q5_1.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin
+          ../build-tests/asr_test ../asr/ggml-base-q5_1.bin ../asr/song.wav ../asr/truth.txt ../asr 2>&1 | grep -v "^whisper_\|^ggml_\|^load_backend" | tee -a ../t_asr.log
+          cp ../asr/words_new.json ../asr/truth.txt ../asr/lyrics.txt test/fixtures/
+
+      - name: "Test: karaoke sync engine (Dart)"
+        id: t_dart
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded 2>&1 | tee ../t_dart.log
+
       - name: Build the APK
         run: |
           set -o pipefail
@@ -54,17 +84,52 @@ jobs:
           flutter build apk --release --target-platform android-arm64 2>&1 | tee -a ../build.log
           cp build/app/outputs/flutter-apk/app-release.apk ../Lectern.apk
 
+      - name: "Test: background job queue (JVM)"
+        id: t_jobs
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cd android && ./gradlew --quiet :app:testReleaseUnitTest -i 2>&1 | grep -E "JobStoreTest|duplicate|restart|PASSED|FAILED|tests completed|BUILD" | tee ../../t_jobs.log
+
+      - name: Write the test report
+        if: always()
+        working-directory: .
+        run: |
+          {
+            echo "# Lectern test report"
+            echo
+            echo "Commit $GITHUB_SHA, $(date -u +'%Y-%m-%d %H:%M UTC')"
+            echo
+            echo "| Suite | Result |"
+            echo "|---|---|"
+            echo "| Audio engine | ${{ steps.t_engine.outcome }} |"
+            echo "| Speech timing | ${{ steps.t_asr.outcome }} |"
+            echo "| Karaoke sync (Dart) | ${{ steps.t_dart.outcome }} |"
+            echo "| Background jobs | ${{ steps.t_jobs.outcome }} |"
+            for f in t_engine t_asr t_dart t_jobs; do
+              [ -f $f.log ] || continue
+              echo; echo "## $f"; echo; echo '```'; grep -v "^\s*$" $f.log | tail -n 120; echo '```'
+            done
+          } > TEST-REPORT.md
+
       - name: Publish to the apk branch
         working-directory: .
         run: |
-          mkdir -p /tmp/apkbranch && cp Lectern.apk /tmp/apkbranch/
-          printf 'Latest Android build of Lectern (native).\n\nBuilt from %s on %s.\n' "$GITHUB_SHA" "$(date -u +'%Y-%m-%d %H:%M UTC')" > /tmp/apkbranch/README.md
+          mkdir -p /tmp/apkbranch && cp Lectern.apk TEST-REPORT.md /tmp/apkbranch/
+          printf 'Latest Android build of Lectern (native).\n\nBuilt from %s on %s. See TEST-REPORT.md.\n' "$GITHUB_SHA" "$(date -u +'%Y-%m-%d %H:%M UTC')" > /tmp/apkbranch/README.md
           cd /tmp/apkbranch
           git init -q -b apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A && git commit -qm "Lectern.apk from ${GITHUB_SHA::7}"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk:apk
+
+      - name: Fail if a test suite failed
+        working-directory: .
+        run: |
+          for o in "${{ steps.t_engine.outcome }}" "${{ steps.t_asr.outcome }}" "${{ steps.t_dart.outcome }}" "${{ steps.t_jobs.outcome }}"; do
+            [ "$o" = "success" ] || { echo "::error title=Tests::a test suite failed (see TEST-REPORT.md on the apk branch)"; exit 1; }
+          done
 
       # Logs can't be downloaded from where this app is developed, so failures are surfaced
       # as annotations (readable through the API): every error line, then the log's tail.

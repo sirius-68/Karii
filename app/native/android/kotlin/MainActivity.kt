@@ -9,7 +9,10 @@ import android.provider.OpenableColumns
 import android.view.WindowManager
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -28,7 +31,12 @@ class MainActivity : FlutterActivity() {
     private lateinit var am: AudioManager
     private var permResult: MethodChannel.Result? = null
     private var pickResult: MethodChannel.Result? = null
-    private val sttExec = java.util.concurrent.Executors.newSingleThreadExecutor()
+    @Volatile private var loadSeq = 0
+    private var jobsSink: EventChannel.EventSink? = null
+    private var pendingOpen: String? = null
+    private var focusReq: AudioFocusRequest? = null
+
+    private fun assetKey(asset: String) = FlutterInjector.instance().flutterLoader().getLookupKeyForAsset(asset)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -50,33 +58,40 @@ class MainActivity : FlutterActivity() {
             try {
                 when (call.method) {
                     "start" -> result.success(NativeEngine.nativeStart())
-                    "load" -> async {
-                        val asset = call.argument<String>("asset")
-                        val path = call.argument<String>("path")
-                        val url = call.argument<String>("url")
-                        val pcm = when {
-                            asset != null -> Media.decodeAsset(this, FlutterInjector.instance().flutterLoader().getLookupKeyForAsset(asset))
-                            path != null -> Media.decodeFile(path)
-                            url != null -> Media.decodeFile(Media.fetch(this, url).path)
-                            else -> throw IllegalArgumentException("nothing to load")
+                    "load" -> {
+                        // only the newest load wins (a slow decode must not replace a newer song)
+                        val seq = ++loadSeq
+                        async {
+                            val asset = call.argument<String>("asset")
+                            val path = call.argument<String>("path")
+                            val url = call.argument<String>("url")
+                            val pcm = when {
+                                asset != null -> Media.decodeAsset(this, assetKey(asset))
+                                path != null -> Media.decodeFile(path)
+                                url != null -> Media.decodeFile(Media.fetch(this, url).path)
+                                else -> throw IllegalArgumentException("nothing to load")
+                            }
+                            if (seq != loadSeq) {
+                                mapOf("stale" to true)
+                            } else {
+                                NativeEngine.nativeStart()
+                                NativeEngine.nativeLoad(pcm.buf, pcm.frames, pcm.channels, pcm.rate)
+                                mapOf("duration" to pcm.frames.toDouble() / pcm.rate, "rate" to pcm.rate)
+                            }
                         }
-                        NativeEngine.nativeStart()
-                        NativeEngine.nativeLoad(pcm.buf, pcm.frames, pcm.channels, pcm.rate)
-                        mapOf("duration" to pcm.frames.toDouble() / pcm.rate, "rate" to pcm.rate)
                     }
-                    "unload" -> { NativeEngine.nativeUnload(); result.success(null) }
-                    "play" -> { NativeEngine.nativePlay(); result.success(null) }
+                    "unload" -> { loadSeq++; NativeEngine.nativeUnload(); result.success(null) }
+                    "play" -> { requestFocus(); NativeEngine.nativePlay(); result.success(null) }
                     "pause" -> { NativeEngine.nativePause(); result.success(null) }
                     "seek" -> { NativeEngine.nativeSeek(call.argument<Double>("sec") ?: 0.0); result.success(null) }
                     "rate" -> { NativeEngine.nativeSetRate(call.argument<Double>("rate") ?: 1.0); result.success(null) }
                     "volume" -> { NativeEngine.nativeSetVolume((call.argument<Double>("v") ?: 1.0).toFloat()); result.success(null) }
                     "state" -> result.success(NativeEngine.nativeState().toList())
                     "openMic" -> async {
-                        val mode = call.argument<Int>("mode") ?: 0
-                        val aec = mode == 3
-                        if (!aec) am.mode = AudioManager.MODE_NORMAL
+                        // music stays on the media path (never the call/SCO path: that is narrowband, "radio" sound)
+                        am.mode = AudioManager.MODE_NORMAL
                         NativeEngine.nativeOpenMic(
-                            mode,
+                            call.argument<Int>("mode") ?: 0,
                             call.argument<Boolean>("nc") ?: false,
                             (call.argument<Double>("gainDb") ?: 0.0).toFloat(),
                             call.argument<Int>("preset") ?: 0,
@@ -84,45 +99,87 @@ class MainActivity : FlutterActivity() {
                         )
                     }
                     "closeMic" -> async { NativeEngine.nativeCloseMic(); null }
-                    "startRecord" -> result.success(NativeEngine.nativeStartRecord(call.argument<String>("mix")!!, call.argument<String>("stem")!!))
+                    "startRecord" -> { requestFocus(); result.success(NativeEngine.nativeStartRecord(call.argument<String>("voice")!!, call.argument<String>("music") ?: "")) }
                     "pauseRecord" -> { NativeEngine.nativePauseRecord(call.argument<Boolean>("paused") ?: false); result.success(null) }
                     "stopRecord" -> async { NativeEngine.nativeStopRecord().toList() }
                     "nc" -> { NativeEngine.nativeSetNC(call.argument<Boolean>("on") ?: false); result.success(null) }
                     "micGain" -> { NativeEngine.nativeSetMicGain((call.argument<Double>("db") ?: 0.0).toFloat()); result.success(null) }
                     "outputLatency" -> result.success(NativeEngine.nativeOutputLatency())
-                    "transcribe" -> asyncOn(sttExec) {
+                    "monoNs" -> result.success(NativeEngine.nativeMonoNs())
+                    "finishTake" -> async {
+                        // loudness-normalised mix, then into the video (or an .m4a)
+                        val wav = call.argument<String>("wav")!!
+                        val fin = org.json.JSONObject(
+                            NativeEngine.nativeFinalize(
+                                call.argument<String>("voice")!!, call.argument<String>("music") ?: "", wav,
+                                call.argument<Int>("mode") ?: 0, call.argument<Double>("balance") ?: 0.0
+                            )
+                        )
+                        if (!fin.optBoolean("ok")) throw IllegalStateException(fin.optString("error", "mix failed"))
+                        val out = call.argument<String>("out")!!
+                        val video = call.argument<String>("video")
+                        var off = call.argument<Double>("offset")
+                        if (video != null && File(video).exists()) {
+                            if (off == null) {
+                                // the camera and the mic stopped at measured moments: line up the ends
+                                val vd = Media.videoDuration(video)
+                                val ad = fin.optDouble("seconds")
+                                val gap = ((call.argument<Number>("videoStopNs")?.toDouble() ?: 0.0) - (call.argument<Number>("audioEndNs")?.toDouble() ?: 0.0)) / 1e9
+                                off = ((vd - ad) - (if (gap.isFinite() && kotlin.math.abs(gap) < 3) gap else 0.0)).coerceIn(-1.0, 2.0)
+                            }
+                            val tmp = "$out.tmp.mp4"
+                            Media.mux(video, wav, tmp, off)
+                            File(tmp).renameTo(File(out))
+                        } else {
+                            Media.wavToM4a(wav, out)
+                        }
+                        File(wav).delete()
+                        mapOf(
+                            "offset" to (off ?: 0.0), "lufs" to fin.optDouble("outLufs"), "truePeak" to fin.optDouble("truePeak"),
+                            "voiceLufs" to fin.optDouble("voiceLufs"), "musicLufs" to fin.optDouble("musicLufs"), "gain" to fin.optDouble("gain"),
+                            "seconds" to fin.optDouble("seconds")
+                        )
+                    }
+                    "jobs.enqueue" -> async {
+                        JobStore.init(this)
+                        val j = org.json.JSONObject(call.argument<Map<String, Any?>>("job")!!)
+                        if (j.optString("asset").isNotEmpty()) j.put("assetKey", assetKey(j.getString("asset")))
+                        val id = JobStore.enqueue(j)
+                        JobService.start(this)
+                        id
+                    }
+                    "jobs.list" -> async {
+                        JobStore.init(this)
+                        if (JobStore.recover()) JobService.start(this)
+                        JobStore.list()
+                    }
+                    "jobs.result" -> async {
+                        val f = JobStore.resultFile(this, call.argument<String>("id")!!)
+                        if (f.exists()) f.readText() else null
+                    }
+                    "jobs.cancel" -> { JobService.cancel(call.argument<String>("id")!!); result.success(null) }
+                    "jobs.retry" -> {
+                        val id = call.argument<String>("id")!!
+                        JobStore.update(id) { it.put("state", "queued").put("progress", 0).put("error", "").put("phase", "Waiting") }
+                        JobService.start(this)
+                        result.success(null)
+                    }
+                    "jobs.applied" -> { JobStore.update(call.argument<String>("id")!!) { it.put("applied", true) }; result.success(null) }
+                    "jobs.remove" -> { JobStore.remove(this, call.argument<String>("id")!!); result.success(null) }
+                    "jobs.takeOpen" -> { result.success(pendingOpen); pendingOpen = null }
+                    "transcribeProgress" -> result.success(NativeEngine.nativeTranscribeProgress())
+                    "transcribeCancel" -> { NativeEngine.nativeTranscribeCancel(); result.success(null) }
+                    "analyzeVocals" -> async {
                         val asset = call.argument<String>("asset")
                         val path = call.argument<String>("path")
                         val url = call.argument<String>("url")
                         val pcm = when {
-                            asset != null -> Media.decodeAsset(this, FlutterInjector.instance().flutterLoader().getLookupKeyForAsset(asset))
+                            asset != null -> Media.decodeAsset(this, assetKey(asset))
                             path != null -> Media.decodeFile(path)
                             url != null -> Media.decodeFile(Media.fetch(this, url).path)
                             else -> throw IllegalArgumentException("no audio")
                         }
-                        val json = NativeEngine.nativeTranscribe(call.argument<String>("model")!!, pcm.buf, pcm.frames, pcm.channels, pcm.rate, call.argument<String>("language") ?: "auto")
-                        if (json.startsWith("{")) throw IllegalStateException(org.json.JSONObject(json).optString("error", "failed"))
-                        val arr = org.json.JSONArray(json)
-                        List(arr.length()) { i ->
-                            val o = arr.getJSONObject(i)
-                            mapOf("text" to o.getString("text"), "start" to o.getDouble("start"), "end" to o.getDouble("end"))
-                        }
-                    }
-                    "transcribeProgress" -> result.success(NativeEngine.nativeTranscribeProgress())
-                    "transcribeCancel" -> { NativeEngine.nativeTranscribeCancel(); result.success(null) }
-                    "mux" -> async {
-                        val video = call.argument<String>("video")!!
-                        val audio = call.argument<String>("audio")!!
-                        val out = call.argument<String>("out")!!
-                        var off = call.argument<Double>("offset")
-                        if (off == null) {
-                            // align the ends: both stopped together, so any extra video is at its start
-                            val vd = Media.videoDuration(video)
-                            val ad = (File(audio).length() - 44) / (4.0 * (call.argument<Int>("rate") ?: 48000))
-                            off = (vd - ad).coerceIn(-1.0, 1.5)
-                        }
-                        Media.mux(video, audio, out, off)
-                        mapOf("offset" to off)
+                        NativeEngine.nativeAnalyzeVocals(pcm.buf, pcm.frames, pcm.channels, pcm.rate)
                     }
                     "wavToM4a" -> async { Media.wavToM4a(call.argument<String>("wav")!!, call.argument<String>("out")!!); true }
                     "videoDuration" -> async { Media.videoDuration(call.argument<String>("path")!!) }
@@ -153,6 +210,23 @@ class MainActivity : FlutterActivity() {
             }
         }
 
+        EventChannel(messenger, "lectern/jobs").setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { jobsSink = events }
+            override fun onCancel(arguments: Any?) { jobsSink = null }
+        })
+        JobStore.init(this)
+        var pushPending = false
+        JobStore.onChange = {
+            // throttle: at most a few updates a second reach Dart
+            if (!pushPending) {
+                pushPending = true
+                main.postDelayed({
+                    pushPending = false
+                    jobsSink?.success(mapOf("jobs" to JobStore.list()))
+                }, 250)
+            }
+        }
+
         EventChannel(messenger, "lectern/route").setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) { routeSink = events }
             override fun onCancel(arguments: Any?) { routeSink = null }
@@ -161,6 +235,53 @@ class MainActivity : FlutterActivity() {
             override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) { routeSink?.success(route()) }
             override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>?) { routeSink?.success(route()) }
         }, main)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        takeJobIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takeJobIntent(intent)
+    }
+
+    /** A tap on a "transcription ready" notification: tell Dart which job to open. */
+    private fun takeJobIntent(i: Intent?) {
+        val id = i?.getStringExtra("lecternJob") ?: return
+        i.removeExtra("lecternJob")
+        pendingOpen = id
+        main.post { jobsSink?.success(mapOf("open" to id)) }
+    }
+
+    // ------------------------------------------------------------------ audio focus
+    // Another app or a phone call takes the audio: tell Dart so it pauses cleanly (a take is
+    // paused, not left recording silence).
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                focusReq?.let { am.abandonAudioFocusRequest(it) }
+                focusReq = null
+                routeSink?.success(mapOf("event" to "interrupted"))
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> routeSink?.success(mapOf("event" to "interrupted"))
+            AudioManager.AUDIOFOCUS_GAIN -> routeSink?.success(mapOf("event" to "resumed"))
+        }
+    }
+
+    private fun requestFocus() {
+        if (focusReq != null) return
+        val attrs = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
+        val r = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).setAudioAttributes(attrs).setOnAudioFocusChangeListener(focusListener, main).build()
+        if (am.requestAudioFocus(r) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focusReq = r
+    }
+
+    override fun onDestroy() {
+        focusReq?.let { am.abandonAudioFocusRequest(it) }
+        focusReq = null
+        JobStore.onChange = null
+        super.onDestroy()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
