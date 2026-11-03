@@ -164,6 +164,9 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
     w.seg = i;
     words.push_back(w);
   }
+  // Tokens of each word. whisper.cpp stamps a token's t_dtw when the alignment path moves on to
+  // the next token, i.e. at the END of the token (see dtw_and_backtrace in whisper.cpp), so a
+  // word's DTW time is where it ends; where it starts is worked out below.
   for (int i = 0; i < ns && !opt.legacy; i++) {
     noSpeech.push_back(whisper_full_get_segment_no_speech_prob(ctx, i));
     const int nt = whisper_full_n_tokens(ctx, i);
@@ -171,21 +174,49 @@ std::string lectern::transcribeJson(std::shared_ptr<Track> track, const std::str
       if (whisper_full_get_token_id(ctx, i, j) >= eot) continue;  // timestamps and special tokens
       const std::string txt = whisper_full_get_token_text(ctx, i, j);
       const whisper_token_data d = whisper_full_get_token_data(ctx, i, j);
-      const double t = (d.t_dtw >= 0 ? d.t_dtw : d.t0) / 100.0;
       const bool startsWord = !txt.empty() && txt[0] == ' ';
       if (words.empty() || startsWord || words.back().seg != i) {
         Word w;
         w.text = startsWord ? txt.substr(1) : txt;
-        w.s = t;
         w.t0 = d.t0 / 100.0;
         w.dtw = d.t_dtw / 100.0;
-        w.e = d.t1 / 100.0;
+        w.s = w.t0;
+        w.e = d.t_dtw >= 0 ? d.t_dtw / 100.0 : d.t1 / 100.0;
         w.seg = i;
         words.push_back(w);
       } else {
         words.back().text += txt;
-        words.back().e = std::max(words.back().e, d.t1 / 100.0);
+        if (d.t_dtw >= 0) words.back().e = std::max(words.back().e, d.t_dtw / 100.0);
+        else words.back().e = std::max(words.back().e, d.t1 / 100.0);
       }
+    }
+  }
+  if (!opt.legacy && opt.dtw) {
+    // start of a word: where the previous word ended when the two are sung back to back;
+    // after a pause, the vocal onset before the word's end; then onto the nearest onset
+    double prevEnd = 0;
+    for (auto& w : words) {
+      if (w.dtw < 0) { prevEnd = w.e; continue; }  // no DTW time: keep the decoder's
+      int syl = 0;
+      bool inV = false;
+      for (char ch : w.text) {
+        const bool v = std::strchr("aeiouyAEIOUY", ch) != nullptr;
+        if (v && !inV) syl++;
+        inV = v;
+      }
+      const double d = 0.18 + 0.16 * std::max(1, syl);  // typical length of this word
+      double st;
+      if (w.e > prevEnd && w.e - prevEnd <= d * 1.8 + 0.15) {
+        st = prevEnd;
+      } else {
+        st = std::max(prevEnd, w.e - d);
+        const double on = vmap.strongestOnset(w.e - 2 * d, w.e - 0.05, 3.0);
+        if (!std::isnan(on) && on >= prevEnd) st = on;
+      }
+      const double sn = vmap.strongestOnset(st - 0.2, st + 0.2, 3.0);
+      if (!std::isnan(sn) && sn >= prevEnd - 0.05 && sn < w.e - 0.05) st = sn;
+      w.s = st;
+      prevEnd = w.e;
     }
   }
   const int detected = whisper_full_lang_id(ctx);

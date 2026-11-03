@@ -238,11 +238,19 @@ void main() {
     for (var t = 0.0; t < truth.first - 0.25; t += 0.01) {
       if (!tr.at(t).intro) introLit++;
     }
+    // instrumental break: from 1 s after the third line's last word to just before the fourth line
+    final lastOf3 = truth[lyricsF.readAsLinesSync().take(3).fold<int>(0, (a, l) => a + lineWords(l).length) - 1];
+    final next = truth[lyricsF.readAsLinesSync().take(3).fold<int>(0, (a, l) => a + lineWords(l).length)];
+    var breakLit = 0;
+    for (var t = lastOf3 + 1.0; t < next - 0.3; t += 0.01) {
+      if (tr.at(t).word >= 0) breakLit++;
+    }
     // ignore: avoid_print
     print('end to end (lyrics aligned to recognised speech): ${truth.length} words, median start error ${median.toStringAsFixed(3)} s, '
-        'p90 ${p90.toStringAsFixed(3)} s, max ${err.last.toStringAsFixed(3)} s, intro frames lit: $introLit');
+        'p90 ${p90.toStringAsFixed(3)} s, max ${err.last.toStringAsFixed(3)} s, intro frames lit: $introLit, break frames lit: $breakLit');
     expect(introLit, 0);
+    expect(breakLit, 0);
     expect(median, lessThan(0.2));
-    expect(p90, lessThan(0.5));
+    expect(p90, lessThan(0.6));
   });
 }

@@ -96,7 +96,7 @@ jobs:
           set -o pipefail
           cd android
           set +e
-          ./gradlew :app:testReleaseUnitTest -i > ../../jobs_full.log 2>&1
+          ./gradlew :app:testDebugUnitTest -i > ../../jobs_full.log 2>&1
           rc=$?
           set -e
           grep -E "JobStoreTest|duplicate enqueue|restart:|PASSED|FAILED|tests completed|BUILD|error:|e: |What went wrong" ../../jobs_full.log | head -n 60 > ../../t_jobs.log

@@ -619,6 +619,15 @@ bool VocalMap::vocalAt(double t) const {
   return lo < regions.size() && regions[lo].first <= t && t <= regions[lo].second;
 }
 
+double VocalMap::strongestOnset(double a, double b, float minDb) const {
+  const int64_t n = int64_t(rise.size());
+  int64_t i0 = std::max<int64_t>(0, int64_t(std::floor(a / hop))), i1 = std::min<int64_t>(n, int64_t(std::ceil(b / hop)));
+  int64_t best = -1;
+  for (int64_t i = i0; i < i1; i++)
+    if (best < 0 || rise[size_t(i)] > rise[size_t(best)]) best = i;
+  return best >= 0 && rise[size_t(best)] >= minDb ? double(best) * hop : NAN;
+}
+
 double VocalMap::nextOnset(double t, double limit) const {
   for (const auto& r : regions) {
     if (r.first >= t && r.first < limit) return r.first;
@@ -656,6 +665,20 @@ VocalMap analyzeVocals(const Track& t) {
     if (f + 1 < nf) { m += em[size_t(f + 1)]; s += es[size_t(f + 1)]; }
     const double c = stereo ? std::max(m - 1.2 * s, 0.03 * m) : m;
     v.score[size_t(f)] = float(10 * std::log10(c / (3.0 * hop) + 1e-12));
+  }
+  // onset strength: rise of the (3-frame smoothed) centre vocal-band level over 30 ms
+  {
+    std::vector<float> sm(v.score.size());
+    for (size_t f = 0; f < sm.size(); f++) {
+      const float a = v.score[f > 0 ? f - 1 : f], b = v.score[f], c2 = v.score[f + 1 < sm.size() ? f + 1 : f];
+      sm[f] = (a + b + c2) / 3;
+    }
+    v.rise.assign(sm.size(), 0.f);
+    for (size_t f = 3; f < sm.size(); f++) v.rise[f] = std::max(0.f, sm[f] - sm[f - 3]);
+    // the rise is credited to where the sound starts, not where it has finished rising
+    std::vector<float> r(v.rise.size(), 0.f);
+    for (size_t f = 0; f + 2 < r.size(); f++) r[f] = v.rise[f + 2];
+    v.rise.swap(r);
   }
   std::vector<float> srt;
   for (float x : v.score) if (x > -90) srt.push_back(x);

@@ -269,7 +269,10 @@ struct VocalMap {
   float on = 0, off = 0;                            // thresholds
   std::vector<std::pair<double, double>> regions;   // where the voice is
   std::vector<double> onsets;                       // vocal onsets
+  std::vector<float> rise;                          // onset strength per frame (dB rise over 30 ms)
   bool vocalAt(double t) const;
+  // time of the strongest rise in [a, b) of at least minDb, or NaN
+  double strongestOnset(double a, double b, float minDb) const;
   double nextOnset(double t, double limit) const;   // first region start in [t, limit), or NaN
 };
 VocalMap analyzeVocals(const Track& t);
