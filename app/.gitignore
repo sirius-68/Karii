@@ -9,3 +9,5 @@
 pubspec.lock
 *.iml
 .idea/
+native/test/build/
+__pycache__/
