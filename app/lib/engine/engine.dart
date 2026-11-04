@@ -110,6 +110,8 @@ class RecResult {
 
 class TakeMix {
   final double offset, lufs, truePeak, voiceLufs, musicLufs, gain, seconds, duckMin;
+  final bool hasVideo; // the finished file has the camera's picture
+  final String? videoProblem; // why the picture couldn't be used
   TakeMix(Map m)
       : offset = (m['offset'] as num?)?.toDouble() ?? 0,
         lufs = (m['lufs'] as num?)?.toDouble() ?? -120,
@@ -118,7 +120,9 @@ class TakeMix {
         musicLufs = (m['musicLufs'] as num?)?.toDouble() ?? -120,
         gain = (m['gain'] as num?)?.toDouble() ?? 0,
         seconds = (m['seconds'] as num?)?.toDouble() ?? 0,
-        duckMin = (m['duckMin'] as num?)?.toDouble() ?? 0;
+        duckMin = (m['duckMin'] as num?)?.toDouble() ?? 0,
+        hasVideo = m['hasVideo'] != false,
+        videoProblem = m['videoProblem'] as String?;
   Map<String, dynamic> toJson() => {'offset': offset, 'lufs': lufs, 'truePeak': truePeak, 'voiceLufs': voiceLufs, 'musicLufs': musicLufs, 'gain': gain};
 }
 

@@ -167,16 +167,29 @@ class _TakeEditorState extends State<TakeEditor> {
     } catch (_) {}
   }
 
-  /// Why the picture may look dark, from what the file actually contains.
+  /// What happened to the picture, from what the files actually contain.
   String? get pictureProblem {
+    final m = d.meta;
+    final raw = ((m['rawVideo'] as Map?) ?? {}).cast<String, dynamic>();
+    final p = m['videoProblem'] as String?;
+    if (m['cameraUsed'] == true && !isVideo) {
+      return 'The camera’s picture couldn’t be used${p != null ? ': $p' : ''}, so this take was kept as sound only.\nCamera file: ${_describe(raw)}';
+    }
     final v = videoMeta;
     if (!isVideo || v.isEmpty) return null;
-    if (v['hasVideo'] == false) return 'This take has no picture: the camera didn’t deliver any video. Try again, and if it keeps happening, turn the camera off and on in the recording settings.';
+    if (v['hasVideo'] == false) return 'This take has no picture.\nCamera file: ${_describe(raw)}\nFinished take: ${_describe(v)}';
     final l = (v['luma'] as num?)?.toDouble() ?? -1;
     if (l >= 0 && l < 14) {
-      return 'The picture in this take is almost black: the camera got very little light. Check that nothing covers the lens, face a light, or switch cameras.';
+      return 'The picture in this take is almost black: the camera got very little light. Check that nothing covers the lens, face a light, or switch cameras.\nCamera file: ${_describe(raw)}';
     }
     return null;
+  }
+
+  static String _describe(Map<String, dynamic> v) {
+    if (v.isEmpty) return 'not checked';
+    if (v['hasVideo'] != true) return 'no video track';
+    final lum = ((v['lumas'] as List?) ?? []).map((x) => (x as num).round()).join('/');
+    return '${v['width']}×${v['height']}, rotation ${v['rotation']}°, ${((v['duration'] as num?) ?? 0).toStringAsFixed(1)} s, brightness $lum of 255';
   }
   late double balance = ((d.edit['balance'] as num?) ?? 0).toDouble();
   late double fadeIn = ((d.edit['fadeIn'] as num?) ?? 0).toDouble();

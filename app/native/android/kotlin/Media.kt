@@ -130,6 +130,47 @@ object Media {
      * Combines the camera's video (no audio) with a 16-bit WAV mix into one MP4.
      * audioOffsetSec > 0 delays the audio, < 0 trims its start.
      */
+    /**
+     * Waits until the camera has finished writing [path]: the file exists, stops growing, opens,
+     * and its video track has a first frame. Returns null when it's ready, or what's wrong.
+     */
+    fun waitForVideo(path: String, timeoutMs: Long): String? {
+        val t0 = System.currentTimeMillis()
+        var last = -1L
+        var problem = "the camera didn't write a video file"
+        while (System.currentTimeMillis() - t0 < timeoutMs) {
+            val f = File(path)
+            val len = if (f.exists()) f.length() else 0L
+            if (len > 0 && len == last) {
+                val ex = MediaExtractor()
+                try {
+                    ex.setDataSource(path)
+                    var vt = -1
+                    for (i in 0 until ex.trackCount) {
+                        if (ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true) { vt = i; break }
+                    }
+                    if (vt < 0) {
+                        problem = "the camera's file has no video track"
+                    } else {
+                        ex.selectTrack(vt)
+                        val buf = ByteBuffer.allocateDirect(4 shl 20)
+                        if (ex.readSampleData(buf, 0) >= 0) return null
+                        problem = "the camera's video has no frames"
+                    }
+                } catch (e: Exception) {
+                    problem = "the camera's video file isn't finished (${e.message})"
+                } finally {
+                    ex.release()
+                }
+            } else if (len > 0) {
+                problem = "the camera was still writing the video"
+            }
+            last = len
+            Thread.sleep(150)
+        }
+        return problem
+    }
+
     fun mux(videoPath: String, wavPath: String, outPath: String, audioOffsetSec: Double) {
         val audio = encodeAac(wavPath)
         val vex = MediaExtractor()
@@ -150,6 +191,7 @@ object Media {
         val buf = ByteBuffer.allocateDirect(maxIn.coerceAtLeast(1 shl 20))
         val info = MediaCodec.BufferInfo()
         var v0 = -1L
+        var frames = 0
         while (true) {
             buf.clear()
             val n = vex.readSampleData(buf, 0)
@@ -157,9 +199,15 @@ object Media {
             if (v0 < 0) v0 = vex.sampleTime
             info.set(0, n, vex.sampleTime - v0, if ((vex.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
             muxer.writeSampleData(mv, buf, info)
+            frames++
             vex.advance()
         }
         vex.release()
+        if (frames == 0) {
+            try { muxer.release() } catch (_: Exception) {}
+            File(outPath).delete()
+            throw IllegalStateException("the camera's video has no frames")
+        }
         if (ma >= 0) {
             val off = (audioOffsetSec * 1e6).toLong()
             for (s in audio.samples) {

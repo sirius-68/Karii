@@ -128,7 +128,10 @@ class MainActivity : FlutterActivity() {
                         val out = call.argument<String>("out")!!
                         val video = call.argument<String>("video")
                         var off = call.argument<Double>("offset")
-                        if (video != null && File(video).exists()) {
+                        // the camera finishes its file in the background after it stops: wait for it,
+                        // and never pass a take off as video when its picture couldn't be used
+                        var videoProblem: String? = if (video != null) Media.waitForVideo(video, 8000) else null
+                        if (video != null && videoProblem == null) {
                             if (off == null) {
                                 // the camera and the mic stopped at measured moments: line up the ends
                                 val vd = Media.videoDuration(video)
@@ -137,8 +140,14 @@ class MainActivity : FlutterActivity() {
                                 off = ((vd - ad) - (if (gap.isFinite() && kotlin.math.abs(gap) < 3) gap else 0.0)).coerceIn(-1.0, 2.0)
                             }
                             val tmp = "$out.tmp.mp4"
-                            Media.mux(video, wav, tmp, off)
-                            File(tmp).renameTo(File(out))
+                            try {
+                                Media.mux(video, wav, tmp, off)
+                                File(tmp).renameTo(File(out))
+                            } catch (e: Exception) {
+                                videoProblem = e.message ?: "the video couldn't be combined with the sound"
+                                File(tmp).delete()
+                                Media.wavToM4a(wav, out)
+                            }
                         } else {
                             Media.wavToM4a(wav, out)
                         }
@@ -146,7 +155,8 @@ class MainActivity : FlutterActivity() {
                         mapOf(
                             "offset" to (off ?: 0.0), "lufs" to fin.optDouble("outLufs"), "truePeak" to fin.optDouble("truePeak"),
                             "voiceLufs" to fin.optDouble("voiceLufs"), "musicLufs" to fin.optDouble("musicLufs"), "gain" to fin.optDouble("gain"), "duckMin" to fin.optDouble("duckMin"),
-                            "seconds" to fin.optDouble("seconds")
+                            "seconds" to fin.optDouble("seconds"),
+                            "hasVideo" to (video != null && videoProblem == null), "videoProblem" to videoProblem
                         )
                     }
                     "jobs.enqueue" -> async {
