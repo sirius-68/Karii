@@ -173,16 +173,27 @@ class _TakeEditorState extends State<TakeEditor> {
     final raw = ((m['rawVideo'] as Map?) ?? {}).cast<String, dynamic>();
     final p = m['videoProblem'] as String?;
     if (m['cameraUsed'] == true && !isVideo) {
-      return 'The camera’s picture couldn’t be used${p != null ? ': $p' : ''}, so this take was kept as sound only.\nCamera file: ${_describe(raw)}';
+      return 'The camera’s picture couldn’t be used${p != null ? ': $p' : ''}, so this take was kept as sound only.\nCamera file: ${_describe(raw)}\n$_context';
     }
     final v = videoMeta;
     if (!isVideo || v.isEmpty) return null;
-    if (v['hasVideo'] == false) return 'This take has no picture.\nCamera file: ${_describe(raw)}\nFinished take: ${_describe(v)}';
+    if (v['hasVideo'] == false) return 'This take has no picture.\nCamera file: ${_describe(raw)}\nFinished take: ${_describe(v)}\n$_context';
     final l = (v['luma'] as num?)?.toDouble() ?? -1;
     if (l >= 0 && l < 14) {
       return 'The picture in this take is almost black: the camera got very little light. Check that nothing covers the lens, face a light, or switch cameras.\nCamera file: ${_describe(raw)}';
     }
     return null;
+  }
+
+  /// Free storage, the camera file's size and any error the camera reported.
+  String get _context {
+    final m = d.meta;
+    final free = (m['freeAtStart'] as num?)?.toInt() ?? -1;
+    return [
+      if (free >= 0) 'free storage when recording: ${fmtBytes(free)}',
+      if (m['rawBytes'] is num) 'camera file ${fmtBytes(m['rawBytes'] as num)}',
+      if (m['cameraError'] != null) 'camera error: ${m['cameraError']}',
+    ].join(' · ');
   }
 
   static String _describe(Map<String, dynamic> v) {

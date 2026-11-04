@@ -23,7 +23,10 @@ Future<void> main() async {
   Engine.i.start();
   runApp(const LecternApp());
   // after the first frame: pick up background jobs (and results finished while the app was closed)
-  WidgetsBinding.instance.addPostFrameCallback((_) => Jobs.i.init());
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    Jobs.i.init();
+    Store.i.cleanup();
+  });
 }
 
 /// Opens the project a finished job belongs to.

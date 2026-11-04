@@ -74,6 +74,10 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
   String? takeId, voicePath, musicPath;
   RecMode mode = RecMode.mic;
   bool videoRecording = false;
+  // what the camera reported while recording, and the free storage, for the take's diagnosis
+  String? camRecError;
+  VoidCallback? _camWatch;
+  int freeAtStart = -1;
 
   bool get recordingNow => phase == Phase.recording || phase == Phase.paused;
   bool get busy => recordingNow || phase == Phase.countdown || phase == Phase.saving;
@@ -354,6 +358,20 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       if (mounted) toast(context, 'Allow the microphone to record a take.');
       return;
     }
+    // the camera stops writing video when the phone runs out of space: say so before recording
+    final (free, _) = await e.storage();
+    freeAtStart = free;
+    if (free >= 0 && free < 600 * 1000 * 1000 && mounted) {
+      final drafts = st.draftBytes();
+      final go = await confirm(
+        context,
+        'Your phone is almost full',
+        'Only ${fmtBytes(free)} is free. While you work on it, a minute of video takes about 150 MB, and the camera stops recording the picture when space runs out.'
+            '${drafts > 0 ? '\n\nYour drafts use ${fmtBytes(drafts)}: save or discard them in the Library to free it.' : ''}',
+        'Record anyway',
+      );
+      if (!go || !mounted) return;
+    }
     rehearsing = false;
     scrollPaused = false;
     if (hasMusic) {
@@ -404,6 +422,13 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       try {
         await cam!.startVideoRecording();
         videoRecording = true;
+        camRecError = null;
+        final c = cam!;
+        _camWatch = () {
+          final err = c.value.errorDescription;
+          if (err != null && err.isNotEmpty) camRecError = err;
+        };
+        c.addListener(_camWatch!);
       } catch (err) {
         debugPrint('video start: $err');
       }
@@ -475,6 +500,10 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
         : Future<XFile?>.value(null);
     final res = await e.stopRecord();
     final vf = await fv;
+    if (_camWatch != null) {
+      cam?.removeListener(_camWatch!);
+      _camWatch = null;
+    }
     if (hasMusic) await e.pause();
     await e.closeMic();
     if (discard) {
@@ -548,6 +577,9 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
         'musicLabel': music.label,
         'video': vinfo,
         'rawVideo': raw,
+        'rawBytes': vf != null && File(vf.path).existsSync() ? File(vf.path).lengthSync() : 0,
+        'freeAtStart': freeAtStart,
+        if (camRecError != null) 'cameraError': camRecError,
         'cameraUsed': video,
         if (mix.videoProblem != null) 'videoProblem': mix.videoProblem,
         'rate': res.rate,
@@ -566,6 +598,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       'takes': ((st.stats['takes'] as num?) ?? 0) + 1,
     };
     st.save(now: true);
+    st.cleanup();
     if (!mounted) return;
     await Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => TakeEditor(draft: d)));
   }

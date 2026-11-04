@@ -8,6 +8,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'text.dart' show fmtBytes;
+
 import 'catalog.dart';
 import 'model.dart';
 
@@ -107,6 +109,66 @@ class Store extends ChangeNotifier {
     final tmp = File('${dir.path}/state.json.tmp');
     await tmp.writeAsString(j, flush: true);
     await tmp.rename('${dir.path}/state.json');
+  }
+
+  /// Deletes working files that no project, draft or recording refers to any more: leftovers
+  /// of takes that were abandoned (leaving mid-take, a crash), camera recordings, finished
+  /// mixes. Files younger than [minAge] are kept (a take may be in progress).
+  Future<int> cleanup({Duration minAge = const Duration(minutes: 10)}) async {
+    final refs = <String>{};
+    void walk(dynamic v) {
+      if (v is String) {
+        refs.add(v);
+        refs.add(v.split('/').last);
+      } else if (v is Map) {
+        v.values.forEach(walk);
+      } else if (v is List) {
+        v.forEach(walk);
+      }
+    }
+
+    walk(items.map((e) => e.m).toList());
+    walk(drafts.map((e) => e.m).toList());
+    walk(recs.map((e) => e.m).toList());
+    walk(settings);
+    var freed = 0;
+    final now = DateTime.now();
+    final dirs = <Directory>[media];
+    try {
+      dirs.add(await getTemporaryDirectory()); // the camera writes its recordings here
+    } catch (_) {}
+    for (final d in dirs) {
+      if (!await d.exists()) continue;
+      await for (final f in d.list(recursive: d != media, followLinks: false)) {
+        if (f is! File) continue;
+        final name = f.path.split('/').last;
+        final isTake = !name.startsWith('dl-') && (name.startsWith('take-') || name.startsWith('REC') || name.endsWith('.temp') || (d != media && (name.endsWith('.mp4') || name.endsWith('.jpg'))));
+        if (!isTake || refs.contains(f.path) || refs.contains(name)) continue;
+        try {
+          final st = await f.stat();
+          if (now.difference(st.modified) < minAge) continue;
+          freed += st.size;
+          await f.delete();
+        } catch (_) {}
+      }
+    }
+    if (freed > 0) debugPrint('cleanup: freed ${fmtBytes(freed)}');
+    return freed;
+  }
+
+  /// Bytes used by drafts (everything a draft keeps until it is saved or discarded).
+  int draftBytes() {
+    var n = 0;
+    for (final d in drafts) {
+      for (final p in [d.video, d.voice, d.music, d.mix, d.m['raw'], d.m['thumb']]) {
+        if (p is! String) continue;
+        try {
+          final f = File(p);
+          if (f.existsSync()) n += f.lengthSync();
+        } catch (_) {}
+      }
+    }
+    return n;
   }
 
   Item? find(String? id) {

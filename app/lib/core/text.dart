@@ -89,6 +89,13 @@ List<String> wordsToLines(List<HeardWord> words) {
   return lines;
 }
 
+String fmtBytes(num b) {
+  if (b < 0) return '?';
+  if (b >= 1e9) return '${(b / 1e9).toStringAsFixed(1)} GB';
+  if (b >= 1e6) return '${(b / 1e6).round()} MB';
+  return '${(b / 1e3).round()} KB';
+}
+
 String fmtTime(double s) {
   if (!s.isFinite || s < 0) s = 0;
   final m = s ~/ 60, r = (s - m * 60).floor();

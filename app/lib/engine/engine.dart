@@ -298,6 +298,16 @@ class Engine extends ChangeNotifier {
   Future<Map<String, dynamic>> videoInfo(String path, {String? thumb}) async =>
       (await _ch.invokeMapMethod<String, dynamic>('videoInfo', {'path': path, 'thumb': thumb})) ?? {};
 
+  /// Free and total bytes on the storage that holds the app's files.
+  Future<(int, int)> storage() async {
+    try {
+      final m = await _ch.invokeMapMethod<String, dynamic>('storage');
+      return (((m?['free'] as num?) ?? -1).toInt(), ((m?['total'] as num?) ?? -1).toInt());
+    } catch (_) {
+      return (-1, -1);
+    }
+  }
+
   Future<void> wavToM4a(String wav, String out) => _ch.invokeMethod('wavToM4a', {'wav': wav, 'out': out});
   Future<String?> saveToGallery(String path, String name) => _ch.invokeMethod<String>('saveToGallery', {'path': path, 'name': name});
 

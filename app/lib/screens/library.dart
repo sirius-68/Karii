@@ -30,6 +30,11 @@ class _LibraryTabState extends State<LibraryTab> {
         if (filter == 'all' || filter == 'recs') {
           if (st.drafts.isNotEmpty) {
             show.add(const SectionHead('Drafts'));
+            show.add(Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+              child: Text('Drafts keep everything needed to re-edit them (${fmtBytes(st.draftBytes())}). Save or discard takes you’re done with to free space.',
+                  style: const TextStyle(color: C.muted, fontSize: 12.5)),
+            ));
             for (final d in st.drafts) {
               show.add(_takeRow(context, d.title, 'Draft · ${fmtTime(d.dur)} · ${dateLabel(d.created)}', d.m['isVideo'] == true, d.m['thumb'] as String?, () {
                 Navigator.of(context).push(MaterialPageRoute(builder: (_) => TakeEditor(draft: d)));
