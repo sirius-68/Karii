@@ -289,6 +289,11 @@ class Engine extends ChangeNotifier {
     return TakeMix(r ?? {});
   }
 
+  /// What a recorded video contains (size, rotation, brightness of the picture) and a poster
+  /// frame written to [thumb].
+  Future<Map<String, dynamic>> videoInfo(String path, {String? thumb}) async =>
+      (await _ch.invokeMapMethod<String, dynamic>('videoInfo', {'path': path, 'thumb': thumb})) ?? {};
+
   Future<void> wavToM4a(String wav, String out) => _ch.invokeMethod('wavToM4a', {'wav': wav, 'out': out});
   Future<String?> saveToGallery(String path, String name) => _ch.invokeMethod<String>('saveToGallery', {'path': path, 'name': name});
 

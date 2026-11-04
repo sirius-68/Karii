@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../core/model.dart';
@@ -29,7 +31,7 @@ class _LibraryTabState extends State<LibraryTab> {
           if (st.drafts.isNotEmpty) {
             show.add(const SectionHead('Drafts'));
             for (final d in st.drafts) {
-              show.add(_takeRow(context, d.title, 'Draft · ${fmtTime(d.dur)} · ${dateLabel(d.created)}', d.m['isVideo'] == true, () {
+              show.add(_takeRow(context, d.title, 'Draft · ${fmtTime(d.dur)} · ${dateLabel(d.created)}', d.m['isVideo'] == true, d.m['thumb'] as String?, () {
                 Navigator.of(context).push(MaterialPageRoute(builder: (_) => TakeEditor(draft: d)));
               }));
             }
@@ -37,7 +39,7 @@ class _LibraryTabState extends State<LibraryTab> {
           if (st.recs.isNotEmpty) {
             show.add(const SectionHead('Recordings'));
             for (final r in st.recs) {
-              show.add(_takeRow(context, r.title, '${fmtTime(r.dur)} · ${dateLabel(r.created)}', r.m['isVideo'] != false, () {
+              show.add(_takeRow(context, r.title, '${fmtTime(r.dur)} · ${dateLabel(r.created)}', r.m['isVideo'] != false, r.thumb, () {
                 Navigator.of(context).push(MaterialPageRoute(builder: (_) => RecViewer(rec: r)));
               }));
             }
@@ -104,13 +106,16 @@ class _LibraryTabState extends State<LibraryTab> {
     );
   }
 
-  Widget _takeRow(BuildContext context, String title, String sub, bool video, VoidCallback onTap) => ListTile(
+  Widget _takeRow(BuildContext context, String title, String sub, bool video, String? thumb, VoidCallback onTap) => ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
         leading: Container(
           width: 56,
           height: 56,
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(color: C.s3, borderRadius: BorderRadius.circular(12)),
-          child: Icon(video ? Icons.videocam_outlined : Icons.graphic_eq, color: C.ink2),
+          child: thumb != null && File(thumb).existsSync()
+              ? Image.file(File(thumb), fit: BoxFit.cover, cacheWidth: 168)
+              : Icon(video ? Icons.videocam_outlined : Icons.graphic_eq, color: C.ink2),
         ),
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(sub, style: const TextStyle(color: C.muted, fontSize: 13)),

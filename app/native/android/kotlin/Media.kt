@@ -3,6 +3,9 @@ package com.lectern.lectern
 import android.content.ContentValues
 import android.content.Context
 import android.content.res.AssetFileDescriptor
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.media.MediaMetadataRetriever
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaExtractor
@@ -13,6 +16,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
@@ -168,6 +172,66 @@ object Media {
         }
         muxer.stop()
         muxer.release()
+    }
+
+    /**
+     * What a recorded video actually contains: size, rotation, duration, and how bright the
+     * picture is at 10/50/90 % (mean luma 0..255), so a take whose camera delivered a black
+     * picture can be told apart from a player that doesn't draw it. Writes a poster frame
+     * (the brightest of those, upright) to [thumbPath] as a JPEG.
+     */
+    fun videoInfo(path: String, thumbPath: String?): Map<String, Any?> {
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(path)
+            val hasVideo = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) == "yes"
+            val w = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val h = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val rot = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            val durMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            val lumas = ArrayList<Double>()
+            var best: Bitmap? = null
+            var bestLuma = -1.0
+            if (hasVideo && durMs > 0) {
+                for (f in doubleArrayOf(0.1, 0.5, 0.9)) {
+                    val us = (durMs * f * 1000).toLong()
+                    val bm = (if (Build.VERSION.SDK_INT >= 27) r.getScaledFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 720, 720)
+                              else r.getFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)) ?: continue
+                    val l = meanLuma(bm)
+                    lumas.add(l)
+                    if (l > bestLuma) { best?.recycle(); best = bm; bestLuma = l } else bm.recycle()
+                }
+            }
+            var thumb: String? = null
+            val b = best
+            if (b != null && thumbPath != null) {
+                // upright, whatever the retriever did with the rotation
+                val portrait = if (rot == 90 || rot == 270) w > h else h > w
+                val up = if ((b.height > b.width) != portrait && (rot == 90 || rot == 270)) {
+                    Bitmap.createBitmap(b, 0, 0, b.width, b.height, Matrix().apply { postRotate(rot.toFloat()) }, true)
+                } else b
+                FileOutputStream(thumbPath).use { up.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+                if (up !== b) up.recycle()
+                thumb = thumbPath
+            }
+            b?.recycle()
+            return mapOf(
+                "hasVideo" to hasVideo, "width" to w, "height" to h, "rotation" to rot, "duration" to durMs / 1000.0,
+                "lumas" to lumas, "luma" to (if (lumas.isEmpty()) -1.0 else lumas.max()), "thumb" to thumb
+            )
+        } finally {
+            r.release()
+        }
+    }
+
+    private fun meanLuma(bm: Bitmap): Double {
+        val s = Bitmap.createScaledBitmap(bm, 32, 32, true)
+        val px = IntArray(32 * 32)
+        s.getPixels(px, 0, 32, 0, 0, 32, 32)
+        if (s !== bm) s.recycle()
+        var sum = 0.0
+        for (c in px) sum += 0.299 * ((c shr 16) and 255) + 0.587 * ((c shr 8) and 255) + 0.114 * (c and 255)
+        return sum / px.size
     }
 
     /** Duration of the first video track in seconds. */

@@ -477,12 +477,19 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
     final vf = await fv;
     if (hasMusic) await e.pause();
     await e.closeMic();
+    // release the camera before the take is put together and played back: the camera and the
+    // video player shouldn't hold the video hardware (and the screen's surfaces) at once
+    final c0 = cam;
+    cam = null;
+    if (mounted) setState(() {});
+    await c0?.dispose();
     if (discard) {
       for (final p in [voicePath, musicPath, vf?.path]) {
         if (p != null) _rm(p);
       }
       if (mounted) setState(() => phase = Phase.ready);
       if (hasMusic) await e.seek(regionStart);
+      if (camOn) _initCam();
       return;
     }
     final video = vf != null;
@@ -508,8 +515,18 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       if (mounted) {
         toast(context, 'The take couldn’t be put together: $err');
         setState(() => phase = Phase.ready);
+        if (camOn) _initCam();
       }
       return;
+    }
+    // a poster frame, and a check that the camera really recorded a picture
+    var vinfo = <String, dynamic>{};
+    if (video) {
+      try {
+        vinfo = await e.videoInfo(out, thumb: st.mediaPath('take-$takeId.jpg'));
+      } catch (err) {
+        debugPrint('video info: $err');
+      }
     }
     final d = Draft({
       'id': takeId,
@@ -521,6 +538,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       'voice': voicePath,
       'music': musicPath,
       'raw': vf?.path,
+      'thumb': vinfo['thumb'],
       'dur': res.seconds,
       'created': DateTime.now().millisecondsSinceEpoch,
       'edit': musicMix,
@@ -532,6 +550,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
         'offset': mix.offset,
         'mix': mix.toJson(),
         'musicLabel': music.label,
+        'video': vinfo,
         'rate': res.rate,
         'health': res.toJson(),
         'struggled': res.struggled,

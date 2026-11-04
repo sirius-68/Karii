@@ -27,14 +27,18 @@ void deleteDraftFiles(Draft d, {bool keepOut = false}) {
   _rm(d.voice);
   _rm(d.music);
   _rm(d.m['raw'] as String?);
-  if (!keepOut) _rm(d.video);
+  if (!keepOut) {
+    _rm(d.video);
+    _rm(d.m['thumb'] as String?);
+  }
 }
 
 class Player extends StatefulWidget {
   final String path;
   final bool video;
   final double aspect, maxHeight;
-  const Player({super.key, required this.path, this.video = true, this.aspect = 9 / 16, this.maxHeight = 480});
+  final String? poster; // a frame of the video, shown until playback starts
+  const Player({super.key, required this.path, this.video = true, this.aspect = 9 / 16, this.maxHeight = 480, this.poster});
   @override
   State<Player> createState() => PlayerState();
 }
@@ -58,6 +62,8 @@ class PlayerState extends State<Player> {
     try {
       await n.initialize();
       await n.setLooping(true);
+      // some Android players draw nothing until the first seek or play
+      await n.seekTo(Duration.zero);
       n.addListener(() {
         if (mounted) setState(() {});
       });
@@ -95,7 +101,10 @@ class PlayerState extends State<Player> {
                   child: AspectRatio(
                   aspectRatio: v.value.aspectRatio,
                   child: Stack(fit: StackFit.expand, children: [
+                    const ColoredBox(color: Colors.black),
                     VideoPlayer(v),
+                    if (!v.value.isPlaying && v.value.position < const Duration(milliseconds: 200) && widget.poster != null && File(widget.poster!).existsSync())
+                      Image.file(File(widget.poster!), fit: BoxFit.cover, gaplessPlayback: true),
                     if (!v.value.isPlaying) const Center(child: CircleAvatar(radius: 30, backgroundColor: Colors.black45, child: Icon(Icons.play_arrow, size: 36, color: Colors.white))),
                   ]),
                 ))
@@ -138,6 +147,37 @@ class _TakeEditorState extends State<TakeEditor> {
   bool busy = false;
 
   bool get isVideo => d.m['isVideo'] == true;
+  String? get thumb => d.m['thumb'] as String?;
+  Map<String, dynamic> get videoMeta => ((d.meta['video'] as Map?) ?? {}).cast<String, dynamic>();
+
+  @override
+  void initState() {
+    super.initState();
+    // takes from before poster frames were made: make one now
+    if (isVideo && (thumb == null || !File(thumb!).existsSync())) _inspect();
+  }
+
+  Future<void> _inspect() async {
+    try {
+      final info = await Engine.i.videoInfo(d.video, thumb: '${d.video}.jpg');
+      d.m['thumb'] = info['thumb'];
+      d.m['meta'] = {...d.meta, 'video': info};
+      Store.i.save();
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  /// Why the picture may look dark, from what the file actually contains.
+  String? get pictureProblem {
+    final v = videoMeta;
+    if (!isVideo || v.isEmpty) return null;
+    if (v['hasVideo'] == false) return 'This take has no picture: the camera didn’t deliver any video. Try again, and if it keeps happening, turn the camera off and on in the recording settings.';
+    final l = (v['luma'] as num?)?.toDouble() ?? -1;
+    if (l >= 0 && l < 14) {
+      return 'The picture in this take is almost black: the camera got very little light. Check that nothing covers the lens, face a light, or switch cameras.';
+    }
+    return null;
+  }
   late double balance = ((d.edit['balance'] as num?) ?? 0).toDouble();
   late double fadeIn = ((d.edit['fadeIn'] as num?) ?? 0).toDouble();
   late double fadeOut = ((d.edit['fadeOut'] as num?) ?? 0).toDouble();
@@ -199,6 +239,7 @@ class _TakeEditorState extends State<TakeEditor> {
       'path': d.video,
       'isVideo': isVideo,
       'dur': d.dur,
+      'thumb': d.m['thumb'],
       'created': d.created,
       'itemId': d.itemId,
       'meta': d.meta,
@@ -260,7 +301,14 @@ class _TakeEditorState extends State<TakeEditor> {
       body: AbsorbPointer(
         absorbing: busy,
         child: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 40), children: [
-          Player(key: player, path: d.video, video: isVideo, maxHeight: MediaQuery.of(context).size.height * 0.55),
+          Player(key: player, path: d.video, video: isVideo, poster: thumb, maxHeight: MediaQuery.of(context).size.height * 0.55),
+          if (pictureProblem != null)
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: const Color(0x22FCD34D), borderRadius: BorderRadius.circular(14)),
+              child: Text(pictureProblem!, style: const TextStyle(color: C.ink2, fontSize: 13.5)),
+            ),
           TextField(
             controller: title,
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
@@ -387,6 +435,7 @@ class RecViewer extends StatelessWidget {
               if (await confirm(context, 'Delete “${rec.title}”?', 'It will be removed from this phone (copies in your gallery stay).', 'Delete', danger: true)) {
                 Store.i.recs.removeWhere((x) => x.id == rec.id);
                 _rm(rec.path);
+                _rm(rec.thumb);
                 Store.i.save();
                 if (context.mounted) Navigator.pop(context);
               }
@@ -400,7 +449,7 @@ class RecViewer extends StatelessWidget {
         ),
       ]),
       body: ListView(padding: const EdgeInsets.all(20), children: [
-        Player(path: rec.path, video: video, maxHeight: MediaQuery.of(context).size.height * 0.65),
+        Player(path: rec.path, video: video, poster: rec.thumb, maxHeight: MediaQuery.of(context).size.height * 0.65),
         const SizedBox(height: 10),
         Text('${fmtTime(rec.dur)} · ${_date(rec.created)}', style: const TextStyle(color: C.muted)),
       ]),

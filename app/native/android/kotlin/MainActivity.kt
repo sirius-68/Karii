@@ -109,6 +109,7 @@ class MainActivity : FlutterActivity() {
                     "startRecord" -> { requestFocus(); result.success(NativeEngine.nativeStartRecord(call.argument<String>("voice")!!, call.argument<String>("music") ?: "")) }
                     "pauseRecord" -> { NativeEngine.nativePauseRecord(call.argument<Boolean>("paused") ?: false); result.success(null) }
                     "stopRecord" -> async { NativeEngine.nativeStopRecord().toList() }
+                    "videoInfo" -> async { Media.videoInfo(call.argument<String>("path")!!, call.argument<String>("thumb")) }
                     "nc" -> { NativeEngine.nativeSetNC(call.argument<Boolean>("on") ?: false); result.success(null) }
                     "micGain" -> { NativeEngine.nativeSetMicGain((call.argument<Double>("db") ?: 0.0).toFloat()); result.success(null) }
                     "outputLatency" -> result.success(NativeEngine.nativeOutputLatency())
