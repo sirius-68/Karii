@@ -200,6 +200,10 @@ class Engine extends ChangeNotifier {
     }
   }
 
+  /// Closes the audio output if nothing plays or records (what happens when the app goes to the
+  /// background); the next start() or play() opens it again.
+  Future<void> suspend() => _ch.invokeMethod('suspend');
+
   Future<void> unload() async {
     _loadSeq++;
     loadedKey = null;

@@ -79,6 +79,7 @@ Future<Draft?> take(
   bool flip = false,
   bool expectTooShort = false,
   int countdown = 0,
+  bool music = false,
   String leave = 'draft', // draft | save | discard
 }) async {
   // ignore: avoid_print
@@ -169,6 +170,9 @@ Future<Draft?> take(
     'poster': d.m['thumb'] != null && File('${d.m['thumb']}').existsSync(),
     'cameraCopyKept': d.m['raw'] != null,
     'cameraHadAudio': ((d.meta['rawVideo'] as Map?) ?? {})['hasAudio'],
+    if (music) 'mode': d.meta['mode'],
+    if (music) 'musicLufs': mix['musicLufs'],
+    if (music) 'health': d.meta['health'],
   };
   // ignore: avoid_print
   print('TAKE $name ${jsonEncode(summary, toEncodable: (o) => '$o')}');
@@ -183,6 +187,15 @@ Future<Draft?> take(
   final rawInfo = ((d.meta['rawVideo'] as Map?) ?? {}).cast<String, dynamic>();
   if (rawInfo['hasAudio'] == true) fail_(name, 'the camera recorded an audio track of its own (it opened the microphone)');
   if (v['hasAudio'] != true) fail_(name, 'the finished take has no sound track');
+  if (music) {
+    // the music the performer heard is kept next to the voice and mixed in at the normal level
+    final stem = d.music;
+    if (stem == null || !File(stem).existsSync() || File(stem).lengthSync() < 100000) fail_(name, 'the music heard during the take was not kept');
+    final lufs = (mix['lufs'] as num?)?.toDouble() ?? -120;
+    if (lufs < -17 || lufs > -11) fail_(name, 'the mix with music is at $lufs LUFS (expected about -14)');
+    if (((mix['truePeak'] as num?) ?? 0) > -0.9) fail_(name, 'the mix peaks at ${mix['truePeak']} dBTP');
+    if (((d.meta['health'] as Map?)?['jumps'] ?? 0) != 0) fail_(name, 'the music timeline jumped ${(d.meta['health'] as Map)['jumps']} times');
+  }
   // the player: opens, has a picture size, and time moves when it plays
   final opened = await waitFor(t, () {
     final ps = t.state<PlayerState>(find.byType(Player));
@@ -253,6 +266,38 @@ void main() {
     await take(t, '11 stopped at once, then again', expectTooShort: true);
     await take(t, '12 other camera', flip: true);
     await take(t, '13 back on the first camera', flip: true, leave: 'save');
+
+    // background music: a trimmed, looping part of a built-in track under the performance
+    item.music = {'type': 'inst', 'id': 'i-remember', 'name': 'Remember'};
+    item.musicSettings = MusicSettings({'trimStart': 4.0, 'trimEnd': 7.0, 'loop': true, 'fadeIn': 0.5, 'fadeOut': 1.0, 'volume': 0.8});
+    await take(t, '14 with looping background music', music: true, seconds: 8);
+    await take(t, '15 with music again', music: true, seconds: 4, leave: 'save');
+    item.music = {'type': 'none'};
+
+    // the audio output is closed in the background and must come back
+    try {
+      final ok = await Engine.i.load(asset: 'assets/audio/inst-home.m4a');
+      await Engine.i.setMusic();
+      await Engine.i.setVolume(0.5);
+      await Engine.i.seek(0);
+      await Engine.i.play();
+      await pumpFor(t, const Duration(milliseconds: 1500));
+      final p1 = (await Engine.i.state()).pos;
+      await Engine.i.pause();
+      await Engine.i.suspend();
+      await pumpFor(t, const Duration(milliseconds: 800));
+      await Engine.i.start();
+      await Engine.i.play();
+      await pumpFor(t, const Duration(milliseconds: 1500));
+      final p2 = (await Engine.i.state()).pos;
+      await Engine.i.pause();
+      // ignore: avoid_print
+      print('OUTPUT loaded $ok, position $p1 s before the pause, $p2 s after reopening');
+      if (!ok || p1 < 0.7) fail_('output', 'music did not play ($p1 s)');
+      if (p2 < p1 + 0.7) fail_('output', 'music did not go on after the output was reopened ($p1 -> $p2 s)');
+    } catch (e) {
+      fail_('output', '$e');
+    }
 
     // saving to the gallery (a copy outside the app)
     if (Store.i.recs.isNotEmpty) {

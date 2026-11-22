@@ -84,6 +84,7 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "suspend" -> async { NativeEngine.nativeSuspend(); null }
                     "unload" -> { loadSeq++; NativeEngine.nativeUnload(); result.success(null) }
                     "play" -> { requestFocus(); NativeEngine.nativePlay(); result.success(null) }
                     "pause" -> { NativeEngine.nativePause(); result.success(null) }

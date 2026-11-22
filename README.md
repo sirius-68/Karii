@@ -38,6 +38,18 @@ Test suites:
   undo history, migration of older projects.
 - **Background jobs** (JVM): the persistent job queue, including that leftover jobs of
   removed features are cancelled rather than run.
+- **Takes on a device** (Android emulator in CI, `app/integration_test/takes_test.dart`):
+  takes recorded back to back through the real recording screen, each checked for picture,
+  sound, playback and that the camera did not record from the microphone; double tap on
+  Record, pause/resume, leaving the app mid-take, switching cameras, background music. The
+  result is on the [`device-test` branch](https://github.com/sirius-68/Karii/tree/device-test).
+
+The camera and video-player plugins are pinned to exact versions and `app/tool/patch_plugins.py`
+changes the camera plugin after `flutter pub get` (the camera must not open the microphone;
+see [docs/RECORDING-AUDIT.md](docs/RECORDING-AUDIT.md)).
+
+If something goes wrong on a phone, **Profile → Send a problem report** shares a text file with
+what the app did during the last takes, the phone model, storage and the app's own system log.
 
 ## Upgrading from earlier versions
 

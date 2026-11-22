@@ -226,7 +226,7 @@ jobs:
             echo
             echo "Plugins:"; echo '```'; cat versions.log 2>/dev/null; echo '```'
             echo "## Takes"; echo; echo '```'
-            grep -E "^(----|TAKE|FAILED|GALLERY|REPORT|SUMMARY)|All tests passed|Some tests failed|\[E\]" t_device_full.log 2>/dev/null | cut -c1-900 | head -n 120
+            grep -E "^(----|TAKE|FAILED|GALLERY|REPORT|OUTPUT|SUMMARY)|All tests passed|Some tests failed|\[E\]" t_device_full.log 2>/dev/null | cut -c1-900 | head -n 120
             echo '```'
             echo "## End of the test output"; echo; echo '```'
             tail -n 420 t_device_full.log 2>/dev/null | cut -c1-600
