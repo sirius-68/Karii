@@ -172,6 +172,9 @@ Future<Draft?> take(
     'cameraHadAudio': ((d.meta['rawVideo'] as Map?) ?? {})['hasAudio'],
     if (music) 'mode': d.meta['mode'],
     if (music) 'musicLufs': mix['musicLufs'],
+    if (music) 'music': mix['music'],
+    if (music) 'musicPeak': mix['musicPeak'],
+    if (music) 'trackPeak': Engine.i.loadedPeakDb,
     if (music) 'health': d.meta['health'],
   };
   // ignore: avoid_print

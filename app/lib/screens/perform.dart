@@ -148,6 +148,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
     hasMusic = false;
     if (!music.none) {
       final ok = await e.load(asset: music.asset, path: music.path, url: music.url);
+      Log.add('studio', 'music', {'label': music.label, 'ok': ok, 'seconds': e.duration, 'peakDb': e.loadedPeakDb.round()});
       if (ok) {
         hasMusic = true;
         dur = e.duration;
@@ -674,6 +675,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
     }
     // a poster frame, and what the camera's file and the finished take really contain
     final hasPicture = hadVideo && vf != null && mix.hasVideo;
+    if (musicPath != null && mix.music != 'mixed') Log.add('take', 'NO MUSIC in the mix', {'why': mix.music, 'sound': res.toJson()});
     if (hadVideo && !hasPicture) Log.add('take', 'NO PICTURE', {'cameraError': camRecError, 'videoProblem': mix.videoProblem, 'cameraBytes': rawBytes});
     var vinfo = <String, dynamic>{}, raw = <String, dynamic>{};
     try {

@@ -659,7 +659,19 @@ FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musi
     res.voiceLufs = integratedLoudness({p, p}, n, fs);
   }
   Wav m;
-  const bool mix = o.mode >= 2 && !musicWav.empty() && readWav(musicWav, &m) && m.ch == 2 && m.rate == fs;
+  bool mix = false;
+  if (o.mode >= 2 && !musicWav.empty()) {
+    if (!readWav(musicWav, &m)) res.music = "the music recorded with the take could not be read";
+    else if (m.ch != 2 || m.rate != fs) res.music = "the music recorded with the take has another format (" + std::to_string(m.ch) + " ch, " + std::to_string(m.rate) + " Hz)";
+    else {
+      mix = true;
+      res.music = "mixed";
+      float pk = 0;
+      for (float x : m.data) pk = std::max(pk, std::fabs(x));
+      res.musicPeakDb = pk > 0 ? 20 * std::log10(pk) : -120;
+      if (pk < 1e-4f) res.music = "the music recorded with the take is silent";
+    }
+  }
   if (mix) {
     const int64_t mn = std::min(n, m.frames());
     std::vector<float> ml(static_cast<size_t>(n), 0.f), mr(static_cast<size_t>(n), 0.f);
@@ -754,8 +766,9 @@ FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musi
 std::string toJson(const FinalizeResult& r) {
   char b[512];
   std::snprintf(b, sizeof b,
-                "{\"ok\":%s,\"voiceLufs\":%.2f,\"musicLufs\":%.2f,\"outLufs\":%.2f,\"truePeak\":%.2f,\"gain\":%.2f,\"seconds\":%.3f,\"duckMin\":%.2f,\"quiet\":%s,\"error\":\"%s\"}",
-                r.ok ? "true" : "false", r.voiceLufs, r.musicLufs, r.outLufs, r.truePeakDb, r.gainDb, r.seconds, r.duckMinDb, r.quiet ? "true" : "false", r.error.c_str());
+                "{\"ok\":%s,\"voiceLufs\":%.2f,\"musicLufs\":%.2f,\"outLufs\":%.2f,\"truePeak\":%.2f,\"gain\":%.2f,\"seconds\":%.3f,\"duckMin\":%.2f,\"quiet\":%s,\"music\":\"%s\",\"musicPeak\":%.2f,\"error\":\"%s\"}",
+                r.ok ? "true" : "false", r.voiceLufs, r.musicLufs, r.outLufs, r.truePeakDb, r.gainDb, r.seconds, r.duckMinDb, r.quiet ? "true" : "false", r.music.c_str(), r.musicPeakDb,
+                r.error.c_str());
   return b;
 }
 

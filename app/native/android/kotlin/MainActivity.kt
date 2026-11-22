@@ -80,7 +80,7 @@ class MainActivity : FlutterActivity() {
                             } else {
                                 NativeEngine.nativeStart()
                                 NativeEngine.nativeLoad(pcm.buf, pcm.frames, pcm.channels, pcm.rate)
-                                mapOf("duration" to pcm.frames.toDouble() / pcm.rate, "rate" to pcm.rate)
+                                mapOf("duration" to pcm.frames.toDouble() / pcm.rate, "rate" to pcm.rate, "channels" to pcm.channels, "peak" to Media.peakDb(pcm))
                             }
                         }
                     }
@@ -166,6 +166,7 @@ class MainActivity : FlutterActivity() {
                             "offset" to (off ?: 0.0), "lufs" to fin.optDouble("outLufs"), "truePeak" to fin.optDouble("truePeak"),
                             "voiceLufs" to fin.optDouble("voiceLufs"), "musicLufs" to fin.optDouble("musicLufs"), "gain" to fin.optDouble("gain"), "duckMin" to fin.optDouble("duckMin"),
                             "seconds" to fin.optDouble("seconds"), "quiet" to fin.optBoolean("quiet"),
+                            "music" to fin.optString("music", "none"), "musicPeak" to fin.optDouble("musicPeak"),
                             "hasVideo" to (video != null && videoProblem == null), "videoProblem" to videoProblem
                         )
                     }

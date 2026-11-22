@@ -479,6 +479,16 @@ class _TakeEditorState extends State<TakeEditor> {
                 ]),
               ]),
             ),
+          if (d.music != null && mixInfo['music'] is String && mixInfo['music'] != 'mixed' && mixInfo['music'] != 'none')
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: const Color(0x22FCD34D), borderRadius: BorderRadius.circular(14)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('This take has no music: ${mixInfo['music']}.', style: const TextStyle(color: C.ink2, fontSize: 13.5)),
+                TextButton(onPressed: () => sendProblemReport(context, about: 'take ${d.id}: no music'), child: const Text('Send a problem report')),
+              ]),
+            ),
           if (mixInfo['quiet'] == true)
             Container(
               margin: const EdgeInsets.only(top: 12),

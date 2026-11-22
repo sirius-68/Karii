@@ -124,6 +124,8 @@ class RecResult {
 class TakeMix {
   final double offset, lufs, truePeak, voiceLufs, musicLufs, gain, seconds, duckMin;
   final bool quiet; // hardly any voice was recorded, so the sound was left quiet
+  final String music; // "none", "mixed", or why the music could not be mixed in
+  final double musicPeak;
   final bool hasVideo; // the finished file has the camera's picture
   final String? videoProblem; // why the picture couldn't be used
   TakeMix(Map m)
@@ -136,9 +138,11 @@ class TakeMix {
         seconds = (m['seconds'] as num?)?.toDouble() ?? 0,
         duckMin = (m['duckMin'] as num?)?.toDouble() ?? 0,
         quiet = m['quiet'] == true,
+        music = '${m['music'] ?? 'none'}',
+        musicPeak = (m['musicPeak'] as num?)?.toDouble() ?? -120,
         hasVideo = m['hasVideo'] != false,
         videoProblem = m['videoProblem'] as String?;
-  Map<String, dynamic> toJson() => {'offset': offset, 'lufs': lufs, 'truePeak': truePeak, 'voiceLufs': voiceLufs, 'musicLufs': musicLufs, 'gain': gain, 'quiet': quiet};
+  Map<String, dynamic> toJson() => {'offset': offset, 'lufs': lufs, 'truePeak': truePeak, 'voiceLufs': voiceLufs, 'musicLufs': musicLufs, 'gain': gain, 'quiet': quiet, 'music': music, 'musicPeak': musicPeak};
 }
 
 class Engine extends ChangeNotifier {
@@ -162,6 +166,7 @@ class Engine extends ChangeNotifier {
 
   String? loadedKey;
   double duration = 0;
+  double loadedPeakDb = 0; // peak level of the loaded track (−120: it decoded to silence)
   bool loading = false;
   double rate = 1;
   double volume = 0.8;
@@ -196,6 +201,7 @@ class Engine extends ChangeNotifier {
       final r = await _ch.invokeMapMethod<String, dynamic>('load', {'asset': asset, 'path': path, 'url': url});
       if (seq != _loadSeq || r?['stale'] == true) return false;
       duration = (r?['duration'] as num?)?.toDouble() ?? 0;
+      loadedPeakDb = (r?['peak'] as num?)?.toDouble() ?? 0;
       loadedKey = key;
       return duration > 0;
     } catch (e) {

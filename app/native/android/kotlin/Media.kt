@@ -50,6 +50,20 @@ object Media {
         }
     }
 
+    /** Peak level of decoded audio in dBFS (every 7th sample is enough to tell music from silence). */
+    fun peakDb(pcm: Pcm): Double {
+        val sb = pcm.buf.duplicate().order(ByteOrder.nativeOrder()).asShortBuffer()
+        var pk = 0
+        var i = 0
+        val n = sb.limit()
+        while (i < n) {
+            val v = Math.abs(sb.get(i).toInt())
+            if (v > pk) pk = v
+            i += 7
+        }
+        return if (pk > 0) 20 * Math.log10(pk / 32768.0) else -120.0
+    }
+
     /** Downloads a URL into the cache (once) and returns the file. */
     fun fetch(ctx: Context, url: String): File {
         val f = File(ctx.cacheDir, "dl-" + url.hashCode().toString(16) + "." + url.substringAfterLast('.', "bin").take(4))

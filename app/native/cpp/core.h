@@ -284,6 +284,9 @@ struct FinalizeResult {
   bool ok = false;
   double voiceLufs = -120, musicLufs = -120, outLufs = -120, truePeakDb = -120, gainDb = 0, seconds = 0, duckMinDb = 0;
   bool quiet = false;  // hardly any voice was recorded (a silent room): it is not blown up to full level
+  // what happened to the music: "none" (not asked for), "mixed", or why it could not be used
+  std::string music = "none";
+  double musicPeakDb = -120;  // peak of the music heard during the take, before mixing
   std::string error;
 };
 // The most a voice may be amplified, by how loud it was recorded: a normal or soft voice gets
