@@ -51,7 +51,8 @@ zero. The desktop tests were built without that flag and passed. Building the te
 phone's flags reproduces it at once (3 checks fail: no click of the music found in the file,
 "music keeps playing through every loop: 0.00").
 
-This has been in every native build: finished takes recorded over music in clean-mix mode
+This has been in every build since the audio engine was rebuilt on 3 November: finished takes
+recorded over music in clean-mix mode
 contained the voice only.
 
 Fix: the flag `-fno-finite-math-only` keeps NaN working; the phone build and the tests now take
