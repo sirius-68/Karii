@@ -626,6 +626,8 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
     Log.add('take', 'stopped', {'sound': res.toJson(), 'cameraFile': vf?.path.split('/').last, 'cameraBytes': rawBytes, if (camRecError != null) 'cameraError': camRecError});
     // a take stopped within a moment has nothing in it (and the camera has no frame to keep)
     final tooShort = res.seconds < 0.7;
+    // the take ran for a while but the microphone delivered nothing
+    final micDead = tooShort && watch.elapsedMilliseconds > 2500;
     if (discard || tooShort) {
       for (final p in [voicePath, musicPath, vf?.path]) {
         if (p != null) _rm(p);
@@ -633,7 +635,10 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       if (_gone) return;
       setState(() => phase = Phase.ready);
       if (hasMusic) await e.seek(regionStart);
-      if (tooShort && !discard && mounted) toast(context, 'That take was too short to keep.');
+      if (micDead) Log.add('take', 'NO SOUND from the microphone', {'ran': watch.elapsedMilliseconds / 1000, 'sound': res.toJson()});
+      if (tooShort && !discard && mounted) {
+        toast(context, micDead ? 'The microphone delivered no sound, so the take couldn’t be kept. Close other apps that use the microphone and try again.' : 'That take was too short to keep.');
+      }
       // a camera that failed to hand over its recording is restarted, so the next take is clean
       if (hadVideo && vf == null) await _restartCam();
       return;

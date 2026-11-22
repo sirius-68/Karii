@@ -68,6 +68,20 @@ def patch_gradle():
     print('patched', p)
 
 
+def patch_root():
+    """Release builds run a 'vital' lint over every plugin's own code; a crash in that tool (it
+    has happened with the camera plugin) must not stop the app from building."""
+    for name, block in (('build.gradle.kts', '\nsubprojects {\n    tasks.configureEach {\n        if (name.startsWith("lintVital")) enabled = false\n    }\n}\n'),
+                        ('build.gradle', '\nsubprojects {\n    tasks.configureEach { t ->\n        if (t.name.startsWith("lintVital")) t.enabled = false\n    }\n}\n')):
+        p = os.path.join(AND, name)
+        if not os.path.exists(p):
+            continue
+        s = open(p).read()
+        if 'lintVital' not in s:
+            open(p, 'w').write(s + '\n// lectern-native: no lint of third-party plugin code' + block)
+            print('patched', p)
+
+
 def patch_manifest():
     p = os.path.join(MOD, 'src', 'main', 'AndroidManifest.xml')
     s = open(p).read()
@@ -144,5 +158,6 @@ def drop_template_test():
 if __name__ == '__main__':
     drop_template_test()
     patch_gradle()
+    patch_root()
     patch_manifest()
     copy_native()
