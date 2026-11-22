@@ -35,6 +35,7 @@ class _Home extends StatelessWidget {
 }
 
 final failures = <String>[];
+final nav = GlobalKey<NavigatorState>();
 void fail_(String where, String what) {
   failures.add('$where: $what');
   // ignore: avoid_print
@@ -83,6 +84,9 @@ Future<Draft?> take(
   // ignore: avoid_print
   print('---- $name');
   Store.i.settings['countdown'] = countdown;
+  // back to the launcher, whatever the take before left open
+  nav.currentState!.popUntil((r) => r.isFirst);
+  await pumpFor(t, const Duration(milliseconds: 800));
   final before = Store.i.drafts.length;
   await t.tap(find.byKey(const ValueKey('go')));
   if (!await waitFor(t, () => onStudio(t) && studio(t).phase == Phase.ready, timeout: const Duration(seconds: 60))) {
@@ -227,7 +231,7 @@ void main() {
       ..body = '[Intro]\nGood evening.\n[pause]\nThis is a test of the studio.\n\n[Close]\nThank you.';
     item.music = {'type': 'none'};
     Store.i.items.add(item);
-    await t.pumpWidget(MaterialApp(theme: lecternTheme(), home: _Home(item)));
+    await t.pumpWidget(MaterialApp(theme: lecternTheme(), navigatorKey: nav, home: _Home(item)));
     await pumpFor(t, const Duration(seconds: 1));
 
     // the reported sequence: several takes in a row, each watched and left

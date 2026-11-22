@@ -503,8 +503,11 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       return;
     }
     _starting = true;
-    if (WidgetsBinding.instance.lifecycleState != null && WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+    final life = WidgetsBinding.instance.lifecycleState;
+    if (life == AppLifecycleState.paused || life == AppLifecycleState.hidden || life == AppLifecycleState.detached) {
       // the app was left while the take was getting ready: don't record in the background
+      // ("inactive" is fine: that is only a system bubble or the notification shade on top)
+      Log.add('take', 'not started: the app is in the background', {'state': '$life'});
       await e.closeMic();
       _starting = false;
       if (!_gone) setState(() => phase = Phase.ready);
