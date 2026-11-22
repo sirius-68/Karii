@@ -32,5 +32,6 @@ endif()
 FetchContent_MakeAvailable(whisper)
 
 add_library(lectern SHARED core.cpp engine.cpp jni.cpp transcribe.cpp stt.cpp)
-target_compile_options(lectern PRIVATE -O3 -ffast-math -Wall)
+include(${CMAKE_CURRENT_SOURCE_DIR}/flags.cmake)
+target_compile_options(lectern PRIVATE ${LECTERN_CXX_FLAGS})
 target_link_libraries(lectern oboe::oboe whisper log android)

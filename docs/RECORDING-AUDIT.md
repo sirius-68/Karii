@@ -37,7 +37,33 @@ Fix: `app/tool/patch_plugins.py` removes the camera's audio unless it is asked f
 versions are pinned and the build stops if the plugin's code changes. The device test fails if
 the camera's file contains an audio track.
 
-### B. A second tap on Record started a second take (proven by reading; covered by the test)
+### B. Takes mixed with music had no music on phones (proven, reproduced on a desktop)
+
+With headphones, or on the speaker with the default "clean mix" setting, the voice is recorded
+alone and the music the performer heard is written next to it, to be mixed afterwards. On the
+emulator that music file was silent although the track was loaded (peak −16 dBFS) and 589 of
+614 microphone blocks were recorded while music was playing.
+
+Cause: the phone build compiled the audio core with `-ffast-math`, which lets the compiler
+assume that a number is never "not a number" (NaN). The recorder marks "no music at this
+moment" with NaN, so its checks were compiled away and every sample of the music file became
+zero. The desktop tests were built without that flag and passed. Building the tests with the
+phone's flags reproduces it at once (3 checks fail: no click of the music found in the file,
+"music keeps playing through every loop: 0.00").
+
+This has been in every native build: finished takes recorded over music in clean-mix mode
+contained the voice only.
+
+Fix: the flag `-fno-finite-math-only` keeps NaN working; the phone build and the tests now take
+their flags from one file (`app/native/cpp/flags.cmake`). The device test records takes over
+looping music and checks that the mix is at the normal level. Every take now reports whether
+its music was mixed, and says so on the take screen if it was not.
+
+A related weakness was closed too: the music heard at each moment is found from the capture
+time of each microphone block. A microphone that reports an impossible time (not in the recent
+past) is now ignored for that block and the time estimated.
+
+### C. A second tap on Record started a second take (proven by reading; covered by the test)
 
 Record did nothing visible for a few hundred milliseconds (permission check, storage check,
 opening the microphone). A second tap in that time started a second countdown and a second
@@ -48,7 +74,7 @@ without picture, and the camera plugin was left "recording" for the next screen.
 Fix: Record reacts at once ("Starting…") and can start only one take; record, pause, resume and
 stop run strictly one after another.
 
-### C. Camera steps could overtake each other (proven by reading the plugin)
+### D. Camera steps could overtake each other (proven by reading the plugin)
 
 The plugin keeps one camera for the whole app. Closing any controller unbinds every camera use,
 and a start that follows an unfinished stop returns without doing anything. Lectern closed
@@ -59,7 +85,7 @@ records nothing. A camera still opening when its screen closed was never closed.
 Fix: every camera step in the app goes through one ordered queue with time limits
 (`app/lib/core/cam.dart`). A screen that closes mid-take ends the camera's recording first.
 
-### D. Player and codec leaks (proven by reading)
+### E. Player and codec leaks (proven by reading)
 
 A video player that was still opening when its screen closed was never released, each one
 holding a hardware video decoder. The sound encoder and the muxer were not released when an
@@ -71,7 +97,7 @@ the player's decoder fails until the app process ends. This is the likeliest rea
 Fix: players are released whatever the timing; playback errors are shown, retried and logged;
 all encoders, extractors and muxers are released in every path.
 
-### E. Storage (proven by reading; likely on a nearly full phone)
+### F. Storage (proven by reading; likely on a nearly full phone)
 
 Each draft kept the camera's file and the finished take, which hold the same video. The camera's
 own files and the files of abandoned takes were never deleted. Copies saved to the gallery
@@ -80,14 +106,14 @@ survive an uninstall, so each round left less room, which fits "two takes, then 
 Fix: the camera's copy is deleted once the finished take holds the picture; leftovers are
 cleaned at start and after each take; a warning before recording when little space is left.
 
-### F. A silent take was amplified by 30 dB (proven, engine test 10)
+### G. A silent take was amplified by 30 dB (proven, engine test 10)
 
 A take with no voice in it (a silent room) was raised by the maximum gain, which turns hiss up
 and shows a low loudness figure. A recording quieter than about −52 LUFS is now left quiet
 (at most +6 dB) and the take says that hardly any voice was recorded. Soft voices (−40 LUFS)
 still reach −14 LUFS.
 
-### G. Smaller defects fixed along the way
+### H. Smaller defects fixed along the way
 
 - Video and sound were written one after the other in the finished file; they are interleaved
   now, which players and messaging apps handle better.
@@ -106,10 +132,10 @@ still reach −14 LUFS.
 
 | Suite | Where it runs | What it checks |
 |---|---|---|
-| Audio engine (C++) | CI and any desktop | 54 checks, now including quiet takes |
+| Audio engine (C++) | CI and any desktop | 54 checks, built with the phone's compiler flags, now including quiet takes |
 | Scripts, projects, camera queue (Dart) | CI | ordering, time limits, failures of camera steps |
 | Background jobs (JVM) | CI | job queue |
-| Takes on a device | Android emulator in CI | 13 takes back to back through the real screen: picture, brightness, poster, sound track, playback, no camera audio; double tap on Record, pause/resume, leaving the app mid-take, a take stopped at once, switching cameras, saving, the gallery copy, the problem report |
+| Takes on a device | Android emulator in CI | 15 takes back to back through the real screen: picture, brightness, poster, sound track, playback, no camera audio; double tap on Record, pause/resume, leaving the app mid-take, a take stopped at once, switching cameras, takes over looping music, saving, the gallery copy, reopening the audio output, the problem report |
 
 The emulator has a virtual camera and a silent microphone and uses software codecs. It proves
 the app's logic and the plugin behaviour; it cannot show how a particular phone's audio and

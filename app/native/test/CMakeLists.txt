@@ -10,5 +10,7 @@ set(CPP ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
 find_package(Threads REQUIRED)
 
 add_executable(engine_test engine_test.cpp ${CPP}/core.cpp)
+include(${CPP}/flags.cmake)
+target_compile_options(engine_test PRIVATE ${LECTERN_CXX_FLAGS})
 target_include_directories(engine_test PRIVATE ${CPP})
 target_link_libraries(engine_test Threads::Threads)
