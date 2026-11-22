@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../core/cam.dart';
+import '../core/log.dart';
 import '../core/media.dart';
 import '../core/model.dart';
 import '../core/store.dart';
@@ -44,7 +46,16 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
   List<CameraDescription> cams = [];
   String? camErr;
   bool camOn = true;
-  bool camBusy = false;
+  int _camOpening = 0, _camToken = 0;
+  bool _gone = false; // this screen is closed: nothing may touch the camera for it any more
+  bool _starting = false; // between the tap on Record and the take actually running
+  // record, pause, resume and stop run strictly one after another
+  Future<void> _ops = Future.value();
+  Future<void> _op(Future<void> Function() f) {
+    final r = _ops.then((_) => f());
+    _ops = r.catchError((Object err) => Log.add('take', 'step failed', {'error': '$err'}));
+    return r;
+  }
 
   Phase phase = Phase.loading;
   MusicSource music = MusicSource.empty;
@@ -80,7 +91,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
   int freeAtStart = -1;
 
   bool get recordingNow => phase == Phase.recording || phase == Phase.paused;
-  bool get busy => recordingNow || phase == Phase.countdown || phase == Phase.saving;
+  bool get busy => recordingNow || _starting || phase == Phase.countdown || phase == Phase.saving;
   bool get _scrolling => ps.autoScroll && !scrollPaused && !dragging && ((rehearsing && phase == Phase.ready) || phase == Phase.recording);
   double get regionStart => ms.trimStart.clamp(0.0, dur > 0 ? dur : 0.0);
   double get regionEnd => ms.trimEnd > 0 && ms.trimEnd < dur ? ms.trimEnd : dur;
@@ -118,6 +129,8 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
     final micOk = await e.requestPermissions(['android.permission.RECORD_AUDIO']);
     if (!micOk && mounted) toast(context, 'Lectern needs the microphone to record. You can still rehearse.');
     final camOk = await e.requestPermissions(['android.permission.CAMERA']);
+    Log.add('studio', 'open', {'item': it.kind.name, 'mic': micOk, 'camera': camOk});
+    if (_gone) return;
     if (camOk) {
       await _initCam();
     } else {
@@ -158,32 +171,68 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
 
   DeviceOrientation get _orientation => landscape ? DeviceOrientation.landscapeLeft : DeviceOrientation.portraitUp;
 
-  Future<void> _initCam({CameraLensDirection? dir}) async {
-    if (camBusy) return;
-    camBusy = true;
-    try {
-      if (cams.isEmpty) cams = await availableCameras();
-      if (cams.isEmpty) throw 'No camera';
-      final want = dir ?? (st.s<String>('facing') == 'back' ? CameraLensDirection.back : CameraLensDirection.front);
-      final d = cams.firstWhere((c) => c.lensDirection == want, orElse: () => cams.first);
+  /// Opens the camera (closing the one that is open). Every camera step goes through one queue
+  /// shared by the whole app, so an old close can never land after a newer open.
+  Future<void> _initCam({CameraLensDirection? dir}) {
+    if (_gone) return Future.value();
+    final token = ++_camToken;
+    _camOpening++;
+    if (mounted) setState(() {});
+    CameraController? made;
+    return Cam.run('open', () async {
+      if (_gone || token != _camToken) return;
       final old = cam;
       cam = null;
-      if (mounted) setState(() {});
-      await old?.dispose();
-      final c = CameraController(d, ResolutionPreset.high, enableAudio: false);
+      if (old != null) {
+        if (mounted) setState(() {});
+        await old.dispose();
+      }
+      if (cams.isEmpty) cams = await availableCameras();
+      if (cams.isEmpty) throw 'this phone reports no camera';
+      final want = dir ?? (st.s<String>('facing') == 'back' ? CameraLensDirection.back : CameraLensDirection.front);
+      final d = cams.firstWhere((c) => c.lensDirection == want, orElse: () => cams.first);
+      final c = made = CameraController(d, ResolutionPreset.high, enableAudio: false);
       await c.initialize();
       try {
         await c.lockCaptureOrientation(_orientation);
       } catch (_) {}
+      if (_gone || token != _camToken || !camOn) {
+        // the screen closed (or the camera was switched off) while it was opening
+        await c.dispose();
+        return;
+      }
       cam = c;
       camErr = null;
-    } catch (err) {
+      Log.add('camera', 'ready', {'lens': d.lensDirection.name, 'preview': '${c.value.previewSize}'});
+    }, timeout: const Duration(seconds: 15)).catchError((Object err) {
       camErr = 'The camera couldn’t start, so takes are audio only.';
       cam = null;
-    } finally {
-      camBusy = false;
+      // a controller that was still opening when the time ran out: close it once it lets go
+      final m = made;
+      if (m != null) {
+        Cam.run('close late', () => m.dispose(), timeout: const Duration(seconds: 20)).then((_) {
+          // closing any controller unbinds the camera for everyone: reopen the one in use
+          if (!_gone && cam != null) _restartCam();
+        }).catchError((Object _) {});
+      }
+    }).whenComplete(() {
+      _camOpening--;
       if (mounted) setState(() {});
-    }
+    });
+  }
+
+  Future<void> _closeCam() {
+    _camToken++;
+    final c = cam;
+    cam = null;
+    if (mounted) setState(() {});
+    if (c == null) return Future.value();
+    return Cam.run('close', () => c.dispose()).catchError((Object _) {});
+  }
+
+  Future<void> _restartCam() async {
+    await _closeCam();
+    if (camOn && !_gone) await _initCam();
   }
 
   Future<void> flipCam() async {
@@ -198,28 +247,27 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
     if (busy) return;
     setState(() => landscape = !landscape);
     await SystemChrome.setPreferredOrientations([_orientation]);
-    try {
-      await cam?.lockCaptureOrientation(_orientation);
-    } catch (_) {}
+    final c = cam;
+    if (c != null) Cam.run('orientation', () => c.lockCaptureOrientation(_orientation)).catchError((Object _) {});
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
-    if (s == AppLifecycleState.inactive || s == AppLifecycleState.paused) {
-      if (phase == Phase.recording) {
-        pauseTake();
-      } else if (phase == Phase.countdown) {
-        _cancelCountdown();
+    Log.add('app', s.name, {'phase': phase.name});
+    if (s == AppLifecycleState.resumed) {
+      if (cam == null && camOn && phase == Phase.ready && _camOpening == 0) _initCam();
+      return;
+    }
+    if (phase == Phase.countdown && !_starting) _cancelCountdown();
+    if (phase == Phase.recording) pauseTake();
+    if (s == AppLifecycleState.paused) {
+      // really in the background (another app, the lock screen): the camera can't go on there
+      if (recordingNow || _starting) {
+        stopTake(why: 'the app went to the background');
       } else if (phase == Phase.ready) {
         if (rehearsing) toggleRehearse();
-        if (cam != null && s == AppLifecycleState.paused) {
-          final c = cam;
-          cam = null;
-          c?.dispose();
-        }
+        _closeCam();
       }
-    } else if (s == AppLifecycleState.resumed) {
-      if (cam == null && camOn && phase == Phase.ready) _initCam();
     }
   }
 
@@ -353,104 +401,159 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
   }
 
   Future<void> startTake() async {
-    if (phase != Phase.ready) return;
-    if (!await e.requestPermissions(['android.permission.RECORD_AUDIO'])) {
-      if (mounted) toast(context, 'Allow the microphone to record a take.');
-      return;
-    }
-    // the camera stops writing video when the phone runs out of space: say so before recording
-    final (free, _) = await e.storage();
-    freeAtStart = free;
-    if (free >= 0 && free < 600 * 1000 * 1000 && mounted) {
-      final drafts = st.draftBytes();
-      final go = await confirm(
-        context,
-        'Your phone is almost full',
-        'Only ${fmtBytes(free)} is free. While you work on it, a minute of video takes about 150 MB, and the camera stops recording the picture when space runs out.'
-            '${drafts > 0 ? '\n\nYour drafts use ${fmtBytes(drafts)}: save or discard them in the Library to free it.' : ''}',
-        'Record anyway',
-      );
-      if (!go || !mounted) return;
-    }
-    rehearsing = false;
-    scrollPaused = false;
-    if (hasMusic) {
-      await e.pause();
-      await _shapeMusic();
-      await e.seek(regionStart);
-    }
-    _lastPos = hasMusic ? regionStart : 0;
-    if (scroll.hasClients) scroll.jumpTo(0);
-    mode = _plan();
-    final r = await e.openMic(mode: mode, nc: st.s<bool>('noiseCancel'), gainDb: st.sd('micGain'));
-    if (r['ok'] != true) {
-      if (mounted) toast(context, 'The microphone couldn’t start. Close other apps using it and try again.');
-      return;
-    }
-    count = st.s<int>('countdown');
-    setState(() => phase = count > 0 ? Phase.countdown : Phase.recording);
-    if (count > 0) {
-      HapticFeedback.lightImpact();
-      _countT = Timer.periodic(const Duration(seconds: 1), (tm) {
-        if (!mounted) return tm.cancel();
-        count--;
-        HapticFeedback.selectionClick();
-        if (count <= 0) {
-          tm.cancel();
-          _go();
-        }
-        setState(() {});
-      });
-    } else {
-      _go();
+    // a second tap while the first is still getting ready must not start a second take
+    if (phase != Phase.ready || _starting) return;
+    setState(() => _starting = true);
+    var handed = false;
+    try {
+      if (!await e.requestPermissions(['android.permission.RECORD_AUDIO'])) {
+        if (mounted) toast(context, 'Allow the microphone to record a take.');
+        return;
+      }
+      if (camOn && cam == null && camErr == null) {
+        if (mounted) toast(context, 'The camera is still starting. Try again in a moment.');
+        return;
+      }
+      // the camera stops writing video when the phone runs out of space: say so before recording
+      final (free, _) = await e.storage();
+      freeAtStart = free;
+      if (free >= 0 && free < 600 * 1000 * 1000 && mounted) {
+        final drafts = st.draftBytes();
+        final go = await confirm(
+          context,
+          'Your phone is almost full',
+          'Only ${fmtBytes(free)} is free. A minute of video takes about 80 MB, and the camera stops recording the picture when space runs out.'
+              '${drafts > 0 ? '\n\nYour drafts use ${fmtBytes(drafts)}: save or discard them in the Library to free it.' : ''}',
+          'Record anyway',
+        );
+        if (!go || !mounted) return;
+      }
+      if (_gone) return;
+      rehearsing = false;
+      scrollPaused = false;
+      if (hasMusic) {
+        await e.pause();
+        await _shapeMusic();
+        await e.seek(regionStart);
+      }
+      _lastPos = hasMusic ? regionStart : 0;
+      if (scroll.hasClients) scroll.jumpTo(0);
+      mode = _plan();
+      final r = await e.openMic(mode: mode, nc: st.s<bool>('noiseCancel'), gainDb: st.sd('micGain'));
+      Log.add('take', 'mic open', {...r, 'mode': mode.name, 'route': e.route.label, 'free': fmtBytes(free)});
+      if (r['ok'] != true) {
+        if (mounted) toast(context, 'The microphone couldn’t start. Close other apps using it and try again.');
+        return;
+      }
+      if (_gone) {
+        e.closeMic();
+        return;
+      }
+      count = st.s<int>('countdown');
+      if (count > 0) {
+        setState(() {
+          phase = Phase.countdown;
+          _starting = false;
+        });
+        HapticFeedback.lightImpact();
+        _countT?.cancel();
+        _countT = Timer.periodic(const Duration(seconds: 1), (tm) {
+          if (!mounted || phase != Phase.countdown) return tm.cancel();
+          count--;
+          HapticFeedback.selectionClick();
+          if (count <= 0) {
+            tm.cancel();
+            _starting = true;
+            _op(_go);
+          }
+          setState(() {});
+        });
+      } else {
+        handed = true;
+        _op(_go);
+      }
+    } finally {
+      if (!handed && _starting && phase == Phase.ready) {
+        _starting = false;
+        if (mounted) setState(() {});
+      }
     }
   }
 
   void _cancelCountdown() {
+    if (_starting) return; // the take is already starting: stop it with the stop button instead
     _countT?.cancel();
     e.closeMic();
     setState(() => phase = Phase.ready);
   }
 
+  /// Back to "ready" after a take could not start.
+  Future<void> _abortStart(String message, {bool restartCamera = false}) async {
+    await e.closeMic();
+    _starting = false;
+    if (_gone) return;
+    setState(() => phase = Phase.ready);
+    toast(context, message);
+    if (restartCamera) await _restartCam();
+  }
+
   Future<void> _go() async {
-    takeId = Store.uid();
-    voicePath = st.mediaPath('take-$takeId-voice.wav');
+    if (_gone) {
+      e.closeMic();
+      return;
+    }
+    _starting = true;
+    if (WidgetsBinding.instance.lifecycleState != null && WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      // the app was left while the take was getting ready: don't record in the background
+      await e.closeMic();
+      _starting = false;
+      if (!_gone) setState(() => phase = Phase.ready);
+      return;
+    }
+    final id = Store.uid();
+    takeId = id;
+    voicePath = st.mediaPath('take-$id-voice.wav');
     // clean mixes keep the music the performer heard, sample-aligned with the voice
-    musicPath = (mode == RecMode.mix || mode == RecMode.mixAec) ? st.mediaPath('take-$takeId-music.wav') : null;
+    musicPath = (mode == RecMode.mix || mode == RecMode.mixAec) ? st.mediaPath('take-$id-music.wav') : null;
     videoRecording = false;
-    if (camOn && cam != null && cam!.value.isInitialized) {
+    camRecError = null;
+    final c = cam;
+    Log.add('take', 'start', {'id': id, 'camera': camOn, 'cameraReady': c != null && c.value.isInitialized, 'landscape': landscape});
+    if (camOn && c != null && c.value.isInitialized) {
       try {
-        await cam!.startVideoRecording();
+        await Cam.run('start recording', () => c.startVideoRecording(), timeout: const Duration(seconds: 10));
         videoRecording = true;
-        camRecError = null;
-        final c = cam!;
         _camWatch = () {
           final err = c.value.errorDescription;
-          if (err != null && err.isNotEmpty) camRecError = err;
+          if (err != null && err.isNotEmpty && camRecError != err) {
+            camRecError = err;
+            Log.add('camera', 'error while recording', {'error': err});
+            if (mounted) setState(() {});
+          }
         };
         c.addListener(_camWatch!);
       } catch (err) {
-        debugPrint('video start: $err');
+        // no picture: say so now, not after the performance
+        return _abortStart('The camera couldn’t start recording, so it was restarted. Press Record again.', restartCamera: true);
       }
     }
     final ok = await e.startRecord(voicePath!, music: musicPath ?? '');
     if (!ok) {
+      Log.add('take', 'sound recorder did not start');
       if (videoRecording) {
         try {
-          await cam!.stopVideoRecording();
+          final x = await Cam.run('stop recording', () => c!.stopVideoRecording(), timeout: const Duration(seconds: 20));
+          _rm(x.path);
         } catch (_) {}
+        videoRecording = false;
       }
-      await e.closeMic();
-      if (mounted) {
-        toast(context, 'Recording couldn’t start (storage full?)');
-        setState(() => phase = Phase.ready);
-      }
-      return;
+      return _abortStart('Recording couldn’t start. Is the phone’s storage full?');
     }
     watch
       ..reset()
       ..start();
     if (hasMusic) await e.play();
+    _starting = false;
     if (mounted) {
       setState(() {
         phase = Phase.recording;
@@ -459,63 +562,83 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
     }
   }
 
-  Future<void> pauseTake() async {
-    if (phase != Phase.recording) return;
-    watch.stop();
-    await e.pauseRecord(true);
-    if (hasMusic) await e.pause();
-    if (videoRecording) {
-      try {
-        await cam!.pauseVideoRecording();
-      } catch (_) {}
-    }
-    if (mounted) setState(() => phase = Phase.paused);
-  }
+  Future<void> pauseTake() => _op(() async {
+        if (phase != Phase.recording) return;
+        watch.stop();
+        await e.pauseRecord(true);
+        if (hasMusic) await e.pause();
+        final c = cam;
+        if (videoRecording && c != null) {
+          try {
+            await Cam.run('pause recording', () => c.pauseVideoRecording());
+          } catch (_) {}
+        }
+        if (mounted && phase == Phase.recording) setState(() => phase = Phase.paused);
+      });
 
-  Future<void> resumeTake() async {
-    if (phase != Phase.paused) return;
-    if (videoRecording) {
-      try {
-        await cam!.resumeVideoRecording();
-      } catch (_) {}
-    }
-    await e.pauseRecord(false);
-    if (hasMusic) await e.play();
-    watch.start();
-    if (mounted) setState(() => phase = Phase.recording);
-  }
+  Future<void> resumeTake() => _op(() async {
+        if (phase != Phase.paused) return;
+        final c = cam;
+        if (videoRecording && c != null) {
+          try {
+            await Cam.run('resume recording', () => c.resumeVideoRecording());
+          } catch (_) {}
+        }
+        await e.pauseRecord(false);
+        if (hasMusic) await e.play();
+        watch.start();
+        if (mounted && phase == Phase.paused) setState(() => phase = Phase.recording);
+      });
 
-  Future<void> stopTake({bool discard = false}) async {
+  Future<void> stopTake({bool discard = false, String? why}) => _op(() => _stop(discard: discard, why: why));
+
+  Future<void> _stop({required bool discard, String? why}) async {
     if (!recordingNow) return;
-    setState(() => phase = Phase.saving);
+    if (mounted) setState(() => phase = Phase.saving);
+    phase = Phase.saving;
     watch.stop();
+    final id = takeId!;
+    Log.add('take', 'stop', {'id': id, 'seconds': watch.elapsedMilliseconds / 1000, 'discard': discard, if (why != null) 'why': why});
     // stop the camera and the mic together and note when each stopped, so the two can be lined
     // up exactly (the mic's last sample has a hardware capture time)
     final videoStopNs = e.clock.monoNs;
-    final fv = videoRecording
-        ? cam!.stopVideoRecording().then<XFile?>((x) => x, onError: (err) {
-            debugPrint('video stop: $err');
+    final c = cam;
+    final hadVideo = videoRecording && c != null;
+    final fv = hadVideo
+        ? Cam.run('stop recording', () => c!.stopVideoRecording(), timeout: const Duration(seconds: 20)).then<XFile?>((x) => x, onError: (Object err) {
+            camRecError = '$err';
             return null;
           })
         : Future<XFile?>.value(null);
     final res = await e.stopRecord();
     final vf = await fv;
+    videoRecording = false;
     if (_camWatch != null) {
-      cam?.removeListener(_camWatch!);
+      c?.removeListener(_camWatch!);
       _camWatch = null;
     }
     if (hasMusic) await e.pause();
     await e.closeMic();
-    if (discard) {
+    var rawBytes = 0;
+    try {
+      if (vf != null && File(vf.path).existsSync()) rawBytes = File(vf.path).lengthSync();
+    } catch (_) {}
+    Log.add('take', 'stopped', {'sound': res.toJson(), 'cameraFile': vf?.path.split('/').last, 'cameraBytes': rawBytes, if (camRecError != null) 'cameraError': camRecError});
+    // a take stopped within a moment has nothing in it (and the camera has no frame to keep)
+    final tooShort = res.seconds < 0.7;
+    if (discard || tooShort) {
       for (final p in [voicePath, musicPath, vf?.path]) {
         if (p != null) _rm(p);
       }
-      if (mounted) setState(() => phase = Phase.ready);
+      if (_gone) return;
+      setState(() => phase = Phase.ready);
       if (hasMusic) await e.seek(regionStart);
+      if (tooShort && !discard && mounted) toast(context, 'That take was too short to keep.');
+      // a camera that failed to hand over its recording is restarted, so the next take is clean
+      if (hadVideo && vf == null) await _restartCam();
       return;
     }
-    final video = vf != null;
-    final out = st.mediaPath(video ? 'take-$takeId.mp4' : 'take-$takeId.m4a');
+    final out = st.mediaPath(hadVideo ? 'take-$id.mp4' : 'take-$id.m4a');
     final musicMix = {'fadeIn': ms.fadeIn, 'fadeOut': ms.fadeOut, 'duckDb': ms.duck ? ms.duckDb : 0.0, 'balance': ms.balanceDb};
     TakeMix mix;
     try {
@@ -523,7 +646,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
         voice: voicePath!,
         music: musicPath,
         mode: mode.index,
-        wav: st.mediaPath('take-$takeId-mix.wav'),
+        wav: st.mediaPath('take-$id-mix.wav'),
         out: out,
         video: vf?.path,
         videoStopNs: videoStopNs,
@@ -534,6 +657,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
         duckDb: ms.duck ? ms.duckDb : 0,
       );
     } catch (err) {
+      Log.add('take', 'could not be put together', {'error': '$err'});
       if (mounted) {
         toast(context, 'The take couldn’t be put together: $err');
         setState(() => phase = Phase.ready);
@@ -541,20 +665,34 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       return;
     }
     // a poster frame, and what the camera's file and the finished take really contain
-    final hasPicture = video && mix.hasVideo;
+    final hasPicture = hadVideo && vf != null && mix.hasVideo;
+    if (hadVideo && !hasPicture) Log.add('take', 'NO PICTURE', {'cameraError': camRecError, 'videoProblem': mix.videoProblem, 'cameraBytes': rawBytes});
     var vinfo = <String, dynamic>{}, raw = <String, dynamic>{};
     try {
-      if (vf != null) raw = await e.videoInfo(vf.path);
-      if (hasPicture) vinfo = await e.videoInfo(out, thumb: st.mediaPath('take-$takeId.jpg'));
+      if (vf != null && rawBytes > 0) raw = await e.videoInfo(vf.path);
+      if (hasPicture) vinfo = await e.videoInfo(out, thumb: st.mediaPath('take-$id.jpg'));
     } catch (err) {
-      debugPrint('video info: $err');
+      Log.add('take', 'video check failed', {'error': '$err'});
     }
+    // the finished take holds the same video: the camera's copy is only kept when its picture
+    // could not be used, so it can be tried again
+    String? rawKept = vf?.path;
+    if (hasPicture && vinfo['hasVideo'] == true && vf != null) {
+      _rm(vf.path);
+      rawKept = null;
+    }
+    Log.add('take', 'finished', {
+      'id': id,
+      'picture': hasPicture,
+      'mix': mix.toJson(),
+      if (mix.videoProblem != null) 'videoProblem': mix.videoProblem,
+      'cameraFile': {...raw}..remove('thumb'),
+      'take': {...vinfo}..remove('thumb'),
+    });
     // the camera is done: let the player have the video hardware
-    final c0 = cam;
-    cam = null;
-    await c0?.dispose();
+    await _closeCam();
     final d = Draft({
-      'id': takeId,
+      'id': id,
       'title': it.title,
       'itemId': it.id,
       'video': out,
@@ -562,7 +700,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       'landscape': landscape,
       'voice': voicePath,
       'music': musicPath,
-      'raw': vf?.path,
+      'raw': rawKept,
       'thumb': vinfo['thumb'],
       'dur': res.seconds,
       'created': DateTime.now().millisecondsSinceEpoch,
@@ -577,11 +715,12 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
         'musicLabel': music.label,
         'video': vinfo,
         'rawVideo': raw,
-        'rawBytes': vf != null && File(vf.path).existsSync() ? File(vf.path).lengthSync() : 0,
+        'rawBytes': rawBytes,
         'freeAtStart': freeAtStart,
         if (camRecError != null) 'cameraError': camRecError,
-        'cameraUsed': video,
+        'cameraUsed': hadVideo,
         if (mix.videoProblem != null) 'videoProblem': mix.videoProblem,
+        if (why != null) 'stoppedBecause': why,
         'rate': res.rate,
         'health': res.toJson(),
         'struggled': res.struggled,
@@ -612,6 +751,8 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
 
   @override
   void dispose() {
+    _gone = true;
+    _camToken++;
     WidgetsBinding.instance.removeObserver(this);
     _ticker.dispose();
     _countT?.cancel();
@@ -619,11 +760,26 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
     e.removeListener(_onEngine);
     JobPill.hiddenBy.value--;
     // leaving mid-take: release the mic and the recorder (the take is dropped)
-    if (busy && phase != Phase.saving) e.closeMic();
+    if (recordingNow || _starting || phase == Phase.countdown) e.closeMic();
     clockT.dispose();
     e.pause();
     e.keepAwake(false);
-    cam?.dispose();
+    // close the camera in the shared queue; a recording still running is ended first, so the
+    // camera is never left "recording" for the next screen
+    final c = cam;
+    cam = null;
+    if (c != null) {
+      if (_camWatch != null) c.removeListener(_camWatch!);
+      Cam.run('leave', () async {
+        if (c.value.isRecordingVideo) {
+          try {
+            final x = await c.stopVideoRecording();
+            _rm(x.path);
+          } catch (_) {}
+        }
+        await c.dispose();
+      }, timeout: const Duration(seconds: 20)).catchError((Object _) {});
+    }
     scroll.dispose();
     st.save();
     SystemChrome.setPreferredOrientations([]);
@@ -748,9 +904,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
                       if (v && cam == null) {
                         await _initCam();
                       } else if (!v) {
-                        final c0 = cam;
-                        cam = null;
-                        await c0?.dispose();
+                        await _closeCam();
                       }
                       if (mounted) setState(() {});
                     }
@@ -867,7 +1021,7 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
             Positioned(top: pad.top + 8, bottom: pad.bottom + 8, right: pad.right + 4, width: sideW - 8, child: _sideControls())
           else
             Positioned(left: 0, right: 0, bottom: pad.bottom + 10, child: _controls()),
-          if (phase == Phase.countdown)
+          if (phase == Phase.countdown && count > 0)
             Center(
               child: Text('$count', style: const TextStyle(fontSize: 120, fontWeight: FontWeight.w800, shadows: [Shadow(blurRadius: 24, color: Colors.black)])),
             ),
@@ -920,6 +1074,9 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
             style: const TextStyle(fontSize: 13, fontFeatures: [FontFeature.tabularFigures()], shadows: [Shadow(blurRadius: 6, color: Colors.black)])),
         const SizedBox(width: 10),
         _meter(),
+        // what is actually being recorded
+        if (!videoRecording) const Padding(padding: EdgeInsets.only(left: 8), child: Text('sound only', style: TextStyle(fontSize: 12, color: Colors.white70))),
+        if (camRecError != null) const Padding(padding: EdgeInsets.only(left: 6), child: Icon(Icons.warning_amber_rounded, size: 16, color: C.amber)),
       ]);
 
   Widget _topBar() {
@@ -1148,8 +1305,9 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
       ]);
 
   Widget _recButton() {
-    final enabled = phase == Phase.ready || recordingNow || phase == Phase.countdown;
+    final enabled = !_starting && (phase == Phase.ready || recordingNow || phase == Phase.countdown);
     return GestureDetector(
+      key: const ValueKey('record'),
       onTap: !enabled
           ? null
           : () {
@@ -1167,15 +1325,17 @@ class _PerformScreenState extends State<PerformScreen> with SingleTickerProvider
           height: 80,
           decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 4)),
           alignment: Alignment.center,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: recordingNow ? 30 : 60,
-            height: recordingNow ? 30 : 60,
-            decoration: BoxDecoration(color: C.hot, borderRadius: BorderRadius.circular(recordingNow ? 8 : 40)),
-          ),
+          child: _starting
+              ? const SizedBox(width: 30, height: 30, child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white))
+              : AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: recordingNow ? 30 : 60,
+                  height: recordingNow ? 30 : 60,
+                  decoration: BoxDecoration(color: C.hot, borderRadius: BorderRadius.circular(recordingNow ? 8 : 40)),
+                ),
         ),
         const SizedBox(height: 4),
-        Text(recordingNow ? 'Stop' : phase == Phase.countdown ? 'Cancel' : 'Record', style: const TextStyle(fontSize: 11.5, color: Colors.white70)),
+        Text(_starting ? 'Starting…' : recordingNow ? 'Stop' : phase == Phase.countdown ? 'Cancel' : 'Record', style: const TextStyle(fontSize: 11.5, color: Colors.white70)),
       ]),
     );
   }

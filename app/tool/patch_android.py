@@ -7,6 +7,8 @@ import os, re, shutil, sys
 APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AND = os.path.join(APP, 'android')
 MOD = os.path.join(AND, 'app')
+# phones are arm64; the test emulator on the build machine is x86_64 (LECTERN_ABI=x86_64)
+ABIS = [a for a in os.environ.get('LECTERN_ABI', 'arm64-v8a').split(',') if a]
 
 
 def patch_gradle():
@@ -44,9 +46,9 @@ def patch_gradle():
             }
         }
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += listOf(%s)
         }
-'''
+''' % ', '.join('"%s"' % a for a in ABIS)
         deps = '\ndependencies {\n    implementation("com.google.oboe:oboe:1.9.3")\n    testImplementation("junit:junit:4.13.2")\n    testImplementation("org.json:json:20240303")\n}\n'
     else:
         android_add = '''
@@ -56,8 +58,8 @@ def patch_gradle():
 '''
         default_add = '''
         externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared' } }
-        ndk { abiFilters 'arm64-v8a' }
-'''
+        ndk { abiFilters %s }
+''' % ', '.join("'%s'" % a for a in ABIS)
         deps = "\ndependencies {\n    implementation 'com.google.oboe:oboe:1.9.3'\n    testImplementation 'junit:junit:4.13.2'\n    testImplementation 'org.json:json:20240303'\n}\n"
     s = re.sub(r'(\nandroid\s*\{)', r'\1' + android_add.replace('\\', '\\\\'), s, count=1)
     s = re.sub(r'(defaultConfig\s*\{)', r'\1' + default_add.replace('\\', '\\\\'), s, count=1)

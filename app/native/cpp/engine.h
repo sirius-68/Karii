@@ -22,6 +22,9 @@ class Engine {
   static Engine& get();
 
   bool start();
+  // Closes the output while nothing plays or records (the app is in the background), so the
+  // phone's audio hardware can sleep; start() opens it again.
+  void suspend();
   int outputRate() const { return outClk_.rate(); }
 
   // ---- playback ----

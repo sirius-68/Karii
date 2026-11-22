@@ -110,6 +110,7 @@ class RecResult {
 
 class TakeMix {
   final double offset, lufs, truePeak, voiceLufs, musicLufs, gain, seconds, duckMin;
+  final bool quiet; // hardly any voice was recorded, so the sound was left quiet
   final bool hasVideo; // the finished file has the camera's picture
   final String? videoProblem; // why the picture couldn't be used
   TakeMix(Map m)
@@ -121,9 +122,10 @@ class TakeMix {
         gain = (m['gain'] as num?)?.toDouble() ?? 0,
         seconds = (m['seconds'] as num?)?.toDouble() ?? 0,
         duckMin = (m['duckMin'] as num?)?.toDouble() ?? 0,
+        quiet = m['quiet'] == true,
         hasVideo = m['hasVideo'] != false,
         videoProblem = m['videoProblem'] as String?;
-  Map<String, dynamic> toJson() => {'offset': offset, 'lufs': lufs, 'truePeak': truePeak, 'voiceLufs': voiceLufs, 'musicLufs': musicLufs, 'gain': gain};
+  Map<String, dynamic> toJson() => {'offset': offset, 'lufs': lufs, 'truePeak': truePeak, 'voiceLufs': voiceLufs, 'musicLufs': musicLufs, 'gain': gain, 'quiet': quiet};
 }
 
 class Engine extends ChangeNotifier {
@@ -297,6 +299,15 @@ class Engine extends ChangeNotifier {
   /// frame written to [thumb].
   Future<Map<String, dynamic>> videoInfo(String path, {String? thumb}) async =>
       (await _ch.invokeMapMethod<String, dynamic>('videoInfo', {'path': path, 'thumb': thumb})) ?? {};
+
+  /// The phone, the app version, storage and this app's own recent system log, for a problem report.
+  Future<Map<String, dynamic>> diagnostics({int lines = 500}) async {
+    try {
+      return (await _ch.invokeMapMethod<String, dynamic>('diag', {'lines': lines})) ?? {};
+    } catch (e) {
+      return {'log': 'not available: $e'};
+    }
+  }
 
   /// Free and total bytes on the storage that holds the app's files.
   Future<(int, int)> storage() async {

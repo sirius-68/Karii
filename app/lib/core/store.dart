@@ -8,6 +8,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'log.dart';
 import 'text.dart' show fmtBytes;
 
 import 'catalog.dart';
@@ -55,10 +56,27 @@ class Store extends ChangeNotifier {
     dir = Directory('${docs.path}/lectern');
     media = Directory('${dir.path}/media');
     await media.create(recursive: true);
+    await Log.init(dir);
     final f = File('${dir.path}/state.json');
-    if (await f.exists()) {
+    final bak = File('${dir.path}/state.json.bak');
+    Map<String, dynamic>? j;
+    var fromMain = false;
+    for (final src in [f, bak]) {
+      if (j != null || !await src.exists()) continue;
       try {
-        final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+        j = jsonDecode(await src.readAsString()) as Map<String, dynamic>;
+        fromMain = src == f;
+        if (src == bak) Log.add('store', 'state restored from the backup copy');
+      } catch (e) {
+        // keep the damaged file for recovery instead of overwriting it with an empty state
+        Log.add('store', 'state file unreadable', {'file': src.path.split('/').last, 'error': '$e'});
+        try {
+          await src.copy('${dir.path}/state.damaged-${DateTime.now().millisecondsSinceEpoch}.json');
+        } catch (_) {}
+      }
+    }
+    if (j != null) {
+      try {
         items.addAll(((j['items'] as List?) ?? []).map((e) => Item.migrate((e as Map).cast<String, dynamic>())));
         settings.addAll(((j['settings'] as Map?) ?? {}).cast<String, dynamic>());
         // settings that only karaoke used
@@ -78,8 +96,10 @@ class Store extends ChangeNotifier {
         likes.addAll(((j['likes'] as List?) ?? []).map((e) => '$e'));
         profile = ((j['profile'] as Map?) ?? {}).cast<String, dynamic>();
         stats = ((j['stats'] as Map?) ?? stats).cast<String, dynamic>();
+        // a copy of the last state that loaded, in case a later write is damaged
+        if (fromMain) await f.copy(bak.path);
       } catch (e) {
-        debugPrint('state load failed: $e');
+        Log.add('store', 'state load failed', {'error': '$e'});
       }
     }
   }
@@ -95,7 +115,30 @@ class Store extends ChangeNotifier {
     }
   }
 
-  Future<void> _write() async {
+  // one write at a time: two overlapping writes to the same temporary file could damage the state
+  Future<void> _writing = Future.value();
+  bool _writeQueued = false;
+
+  Future<void> _write() {
+    if (_writeQueued) return _writing;
+    _writeQueued = true;
+    return _writing = _writing.then((_) async {
+      _writeQueued = false;
+      try {
+        await _writeNow();
+      } catch (e) {
+        Log.add('store', 'saving failed', {'error': '$e'});
+      }
+    });
+  }
+
+  /// Resolves when everything saved so far is on disk.
+  Future<void> flush() {
+    _saveT?.cancel();
+    return _write();
+  }
+
+  Future<void> _writeNow() async {
     final j = jsonEncode({
       'items': items.map((e) => e.m).toList(),
       'settings': settings,

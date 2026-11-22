@@ -688,6 +688,46 @@ static void testLoopRecording() {
   check(p.loops() >= 3, "the region looped", "%.0f times (want >= %.0f)", double(p.loops()), 3);
 }
 
+// ---------------------------------------------------------------- 10. a take with no voice in it
+static void testQuietTake() {
+  std::printf("\n10. A take recorded in a silent room is not blown up to full level\n");
+  const int fs = 48000;
+  const int64_t n = int64_t(20) * fs;
+  std::mt19937 rng(5);
+  std::normal_distribution<float> nz(0, 1);
+  auto write = [&](const std::string& path, const std::vector<float>& v) {
+    std::FILE* f = std::fopen(path.c_str(), "wb");
+    writeWavHeader(f, 1, fs, 0);
+    std::fwrite(v.data(), 4, v.size(), f);
+    finishWav(f, 1, fs);
+  };
+  const std::string vp = tmp("lectern_q.wav"), op = tmp("lectern_qo.wav");
+  // room noise only, with one tap on the phone (what a "silent" test take contains)
+  std::vector<float> room(static_cast<size_t>(n));
+  for (int64_t i = 0; i < n; i++) room[size_t(i)] = 0.0005f * nz(rng);
+  for (int i = 0; i < 300; i++) room[size_t(5 * fs + i)] += 0.1f * std::sin(2 * M_PI * 900 * i / fs) * std::exp(-i / 60.0);
+  write(vp, room);
+  FinalizeOptions o;
+  FinalizeResult r = finalizeTake(vp, "", op, o);
+  std::printf("  [INFO] room noise in %.1f LUFS -> out %.1f LUFS (gain %.1f dB)\n", r.voiceLufs, r.outLufs, r.gainDb);
+  check(r.ok && r.quiet, "recognised as a take with hardly any voice", "%.1f LUFS in (limit %.0f)", r.voiceLufs, -52);
+  check(r.gainDb <= 6.01, "room noise is not amplified by more than 6 dB", "%.1f dB (max %.0f)", r.gainDb, 6);
+  check(r.outLufs < -45, "the hiss stays quiet", "%.1f LUFS (max %.0f)", r.outLufs, -45);
+  // a soft, distant voice (-40 LUFS) is still brought up to the normal level
+  std::vector<float> soft(static_cast<size_t>(n));
+  for (int64_t i = 0; i < n; i++) {
+    const double t = double(i) / fs;
+    const bool on = std::fmod(t, 2.0) < 1.6;
+    soft[size_t(i)] = 0.0006f * nz(rng) + (on ? float(0.011 * std::sin(2 * M_PI * 190 * t) + 0.005 * std::sin(2 * M_PI * 570 * t)) : 0.f);
+  }
+  write(vp, soft);
+  r = finalizeTake(vp, "", op, o);
+  std::printf("  [INFO] soft voice in %.1f LUFS -> out %.1f LUFS (gain %.1f dB)\n", r.voiceLufs, r.outLufs, r.gainDb);
+  check(!r.quiet && std::fabs(r.outLufs + 14) < 1.5, "a soft voice still reaches the normal level", "%.1f LUFS (target -14 ±%.1f)", r.outLufs, 1.5);
+  check(std::fabs(voiceMaxGainDb(-40, 30) - 30) < 1e-9 && std::fabs(voiceMaxGainDb(-60, 30) - 6) < 1e-9 && voiceMaxGainDb(-51, 30) > 6 && voiceMaxGainDb(-51, 30) < 30,
+        "gain range shrinks smoothly between -46 and -56 LUFS", "%.1f dB at -51 (between %.0f and 30)", voiceMaxGainDb(-51, 30), 6);
+}
+
 int main() {
   testPlaybackRate();
   testClock();
@@ -699,6 +739,7 @@ int main() {
   testMusicRegion();
   testDucking();
   testLoopRecording();
+  testQuietTake();
   std::printf("\n%d passed, %d failed\n", passes, fails);
   return fails ? 1 : 0;
 }

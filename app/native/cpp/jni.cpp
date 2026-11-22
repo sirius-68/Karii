@@ -33,6 +33,7 @@ API int64_t lectern_mono_ns() { return lectern::monoNs(); }
 extern "C" {
 
 JNIEXPORT jboolean JNICALL FN(nativeStart)(JNIEnv*, jobject) { return Engine::get().start(); }
+JNIEXPORT void JNICALL FN(nativeSuspend)(JNIEnv*, jobject) { Engine::get().suspend(); }
 JNIEXPORT jint JNICALL FN(nativeSampleRate)(JNIEnv*, jobject) { return Engine::get().outputRate(); }
 
 JNIEXPORT jboolean JNICALL FN(nativeLoad)(JNIEnv* env, jobject, jobject buf, jlong frames, jint channels, jint rate) {

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'core/catalog.dart';
 import 'core/jobs.dart';
+import 'core/log.dart';
 import 'core/store.dart';
 import 'engine/engine.dart';
 import 'screens/editor.dart';
@@ -17,6 +18,16 @@ final messengerKey = GlobalKey<ScaffoldMessengerState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // errors go into the app's own log, so a problem report shows them
+  final prev = FlutterError.onError;
+  FlutterError.onError = (d) {
+    Log.add('error', d.exceptionAsString(), {'where': '${d.context ?? ''}', 'stack': (d.stack?.toString() ?? '').split('\n').take(6).join(' | ')});
+    prev?.call(d);
+  };
+  WidgetsBinding.instance.platformDispatcher.onError = (err, stack) {
+    Log.add('error', '$err', {'stack': stack.toString().split('\n').take(6).join(' | ')});
+    return true;
+  };
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(statusBarColor: Colors.transparent, statusBarIconBrightness: Brightness.light));
   await Catalog.i.load();
   await Store.i.load();

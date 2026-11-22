@@ -41,6 +41,8 @@ jobs:
         run: |
           set -o pipefail
           flutter pub get 2>&1 | tee -a ../build.log
+          # the exact versions of the camera and video plugins this build uses (they are not pinned)
+          flutter pub deps --style=compact 2>/dev/null | grep -E "^- (camera|video_player|share_plus|path_provider)" | tee ../versions.log || true
 
       - name: Check the Dart code
         run: |
@@ -48,7 +50,7 @@ jobs:
           flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee ../analyze.log | tee -a ../build.log
 
       # ---------------------------------------------------------------- tests
-      - name: "Test: audio engine (speed, clock, recording, loudness, noise, music trim/loop/fades/ducking)"
+      - name: "Test: audio engine (speed, clock, recording, loudness, quiet takes, noise, music trim/loop/fades/ducking)"
         id: t_engine
         continue-on-error: true
         run: |
@@ -57,7 +59,7 @@ jobs:
           cmake --build ../build-tests -j4 2>&1 | grep -E "error|Built target" | tee -a ../build.log
           ../build-tests/engine_test 2>&1 | tee ../t_engine.log
 
-      - name: "Test: scripts, sections, teleprompter, undo and migration (Dart)"
+      - name: "Test: scripts, sections, teleprompter, undo, migration, camera queue (Dart)"
         id: t_dart
         continue-on-error: true
         run: |
@@ -100,6 +102,8 @@ jobs:
             echo "| Audio engine | ${{ steps.t_engine.outcome }} |"
             echo "| Scripts and projects (Dart) | ${{ steps.t_dart.outcome }} |"
             echo "| Background jobs | ${{ steps.t_jobs.outcome }} |"
+            echo; echo "Flutter: $(cd app && flutter --version 2>/dev/null | head -n 1)"
+            echo; echo "Plugins:"; echo '```'; cat versions.log 2>/dev/null; echo '```'
             for f in t_engine t_dart t_jobs; do
               [ -f $f.log ] || continue
               echo; echo "## $f"; echo; echo '```'; grep -v "^\s*$" $f.log | tail -n 120; echo '```'
@@ -145,3 +149,99 @@ jobs:
           tail -n 40 build.log | grep -v '^\s*$' | tail -n 30 > tail.log
           body=$(sed -e 's/%/%25/g' tail.log | cut -c1-400 | awk '{printf "%s%%0A", $0}')
           echo "::error title=Build log (last lines)::${body}"
+
+  # Records takes back to back on an Android emulator through the real recording screen, camera,
+  # microphone, mixer and player, and checks every finished take (picture, sound, playback).
+  # The result is published on the "device-test" branch (DEVICE-TEST.md).
+  device:
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Let the emulator use hardware virtualisation
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Generate the platform project for the emulator (x86_64)
+        env:
+          LECTERN_ABI: x86_64
+        run: |
+          set -o pipefail
+          flutter create --org com.lectern --project-name lectern --platforms android --no-pub . 2>&1 | tail -n 3
+          python3 tool/patch_android.py
+          flutter pub get 2>&1 | tail -n 3
+          flutter pub deps --style=compact 2>/dev/null | grep -E "^- (camera|video_player)" | tee ../versions.log || true
+
+      - name: Build the app once before the emulator starts (native code, Gradle)
+        run: |
+          set -o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          flutter build apk --debug --target-platform android-x64 2>&1 | tee ../device_build.log | tail -n 15
+
+      - name: "Test: takes on an Android emulator"
+        id: t_device
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 512M
+          disk-size: 8G
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          disable-animations: true
+          script: bash app/tool/device_test.sh
+
+      - name: Publish the result on the device-test branch
+        if: always()
+        working-directory: .
+        run: |
+          mkdir -p /tmp/devbranch
+          {
+            echo "# Lectern device test (Android emulator)"
+            echo
+            echo "Commit $GITHUB_SHA, $(date -u +'%Y-%m-%d %H:%M UTC'): **${{ steps.t_device.outcome }}**"
+            echo
+            echo "Plugins:"; echo '```'; cat versions.log 2>/dev/null; echo '```'
+            echo "## Takes"; echo; echo '```'
+            grep -E "^(----|TAKE|FAILED|GALLERY|REPORT|SUMMARY)|All tests passed|Some tests failed|\[E\]" t_device_full.log 2>/dev/null | cut -c1-900 | head -n 120
+            echo '```'
+            echo "## End of the test output"; echo; echo '```'
+            tail -n 420 t_device_full.log 2>/dev/null | cut -c1-600
+            echo '```'
+            echo "## System log (camera, codecs, player)"; echo; echo '```'
+            tail -n 160 device_logcat.log 2>/dev/null | cut -c1-400
+            echo '```'
+            if [ ! -s t_device_full.log ]; then echo "## Build output"; echo '```'; tail -n 60 device_build.log 2>/dev/null | cut -c1-400; echo '```'; fi
+          } > /tmp/devbranch/DEVICE-TEST.md
+          cd /tmp/devbranch
+          git init -q -b device-test
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -qm "Device test for ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" device-test:device-test
+
+      - name: Fail if the device test failed
+        working-directory: .
+        run: |
+          [ "${{ steps.t_device.outcome }}" = "success" ] || { echo "::error title=Device test::takes on the emulator failed (see DEVICE-TEST.md on the device-test branch)"; exit 1; }

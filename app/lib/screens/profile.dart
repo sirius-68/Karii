@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/report.dart';
 import '../core/store.dart';
 import '../engine/engine.dart';
 import '../widgets/ui.dart';
@@ -79,6 +80,14 @@ class ProfileTab extends StatelessWidget {
               onTap: () => actionSheet(context, 'Speech model', [
                 for (final m in sttModels) SheetAction(st.s<String>('sttModel') == m.id ? Icons.check : Icons.memory, m.name, () => st.set('sttModel', m.id), sub: '${m.note} ${m.size}'),
               ], note: 'Runs on your phone. The model downloads once, the first time you use it.'),
+            ),
+            const SectionHead('Help'),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+              leading: const Icon(Icons.bug_report_outlined),
+              title: const Text('Send a problem report'),
+              subtitle: const Text('What the app did during your last takes, your phone model and storage. No scripts, audio or video.', style: TextStyle(color: C.muted)),
+              onTap: () => sendProblemReport(context),
             ),
             const SectionHead('About'),
             const ListTile(

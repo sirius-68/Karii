@@ -283,8 +283,13 @@ struct FinalizeOptions {
 struct FinalizeResult {
   bool ok = false;
   double voiceLufs = -120, musicLufs = -120, outLufs = -120, truePeakDb = -120, gainDb = 0, seconds = 0, duckMinDb = 0;
+  bool quiet = false;  // hardly any voice was recorded (a silent room): it is not blown up to full level
   std::string error;
 };
+// The most a voice may be amplified, by how loud it was recorded: a normal or soft voice gets
+// the full range; a recording with no voice in it (room noise, about -55 LUFS and below) is
+// left quiet instead of being turned into loud hiss.
+double voiceMaxGainDb(double voiceLufs, double maxGainDb);
 std::vector<float> musicEnvelope(const float* voice, int64_t n, int fs, const FinalizeOptions& o);
 FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musicWav, const std::string& outWav, const FinalizeOptions& o);
 std::string toJson(const FinalizeResult& r);

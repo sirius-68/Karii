@@ -55,6 +55,16 @@ bool Engine::start() {
   return openOutput();
 }
 
+void Engine::suspend() {
+  std::lock_guard<std::mutex> g(lock_);
+  if (!out_ || player_.playing() || rec_.recording() || micWanted_.load()) return;
+  out_->stop();
+  out_->close();
+  out_.reset();
+  tuner_.reset();
+  LOGI("output suspended");
+}
+
 oboe::DataCallbackResult Engine::OutCb::onAudioReady(oboe::AudioStream* s, void* data, int32_t n) {
   Engine& e = Engine::get();
   e.player_.render(static_cast<float*>(data), n, e.outFrames_);

@@ -9,6 +9,7 @@ object NativeEngine {
     }
 
     external fun nativeStart(): Boolean
+    external fun nativeSuspend()
     external fun nativeSampleRate(): Int
     external fun nativeLoad(buf: ByteBuffer, frames: Long, channels: Int, rate: Int): Boolean
     external fun nativeUnload()

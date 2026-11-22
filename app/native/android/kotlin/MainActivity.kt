@@ -25,7 +25,11 @@ import java.io.File
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
+    // engine and take work runs in order on one thread; loading music (which may download) and
+    // file inspection have their own threads so they can never hold up stopping a recording
     private val bg = Executors.newSingleThreadExecutor()
+    private val loader = Executors.newSingleThreadExecutor()
+    private val io = Executors.newCachedThreadPool()
     private val main = Handler(Looper.getMainLooper())
     private var routeSink: EventChannel.EventSink? = null
     private lateinit var am: AudioManager
@@ -61,7 +65,7 @@ class MainActivity : FlutterActivity() {
                     "load" -> {
                         // only the newest load wins (a slow decode must not replace a newer song)
                         val seq = ++loadSeq
-                        async {
+                        asyncOn(loader) {
                             val asset = call.argument<String>("asset")
                             val path = call.argument<String>("path")
                             val url = call.argument<String>("url")
@@ -109,11 +113,12 @@ class MainActivity : FlutterActivity() {
                     "startRecord" -> { requestFocus(); result.success(NativeEngine.nativeStartRecord(call.argument<String>("voice")!!, call.argument<String>("music") ?: "")) }
                     "pauseRecord" -> { NativeEngine.nativePauseRecord(call.argument<Boolean>("paused") ?: false); result.success(null) }
                     "stopRecord" -> async { NativeEngine.nativeStopRecord().toList() }
-                    "storage" -> async {
+                    "storage" -> asyncOn(io) {
                         val st = android.os.StatFs(filesDir.path)
                         mapOf("free" to st.availableBytes, "total" to st.totalBytes)
                     }
-                    "videoInfo" -> async { Media.videoInfo(call.argument<String>("path")!!, call.argument<String>("thumb")) }
+                    "diag" -> asyncOn(io) { diagnostics(call.argument<Int>("lines") ?: 500) }
+                    "videoInfo" -> asyncOn(io) { Media.videoInfo(call.argument<String>("path")!!, call.argument<String>("thumb")) }
                     "nc" -> { NativeEngine.nativeSetNC(call.argument<Boolean>("on") ?: false); result.success(null) }
                     "micGain" -> { NativeEngine.nativeSetMicGain((call.argument<Double>("db") ?: 0.0).toFloat()); result.success(null) }
                     "outputLatency" -> result.success(NativeEngine.nativeOutputLatency())
@@ -159,11 +164,11 @@ class MainActivity : FlutterActivity() {
                         mapOf(
                             "offset" to (off ?: 0.0), "lufs" to fin.optDouble("outLufs"), "truePeak" to fin.optDouble("truePeak"),
                             "voiceLufs" to fin.optDouble("voiceLufs"), "musicLufs" to fin.optDouble("musicLufs"), "gain" to fin.optDouble("gain"), "duckMin" to fin.optDouble("duckMin"),
-                            "seconds" to fin.optDouble("seconds"),
+                            "seconds" to fin.optDouble("seconds"), "quiet" to fin.optBoolean("quiet"),
                             "hasVideo" to (video != null && videoProblem == null), "videoProblem" to videoProblem
                         )
                     }
-                    "jobs.enqueue" -> async {
+                    "jobs.enqueue" -> asyncOn(io) {
                         JobStore.init(this)
                         val j = org.json.JSONObject(call.argument<Map<String, Any?>>("job")!!)
                         if (j.optString("asset").isNotEmpty()) j.put("assetKey", assetKey(j.getString("asset")))
@@ -171,12 +176,12 @@ class MainActivity : FlutterActivity() {
                         JobService.start(this)
                         id
                     }
-                    "jobs.list" -> async {
+                    "jobs.list" -> asyncOn(io) {
                         JobStore.init(this)
                         if (JobStore.recover()) JobService.start(this)
                         JobStore.list()
                     }
-                    "jobs.result" -> async {
+                    "jobs.result" -> asyncOn(io) {
                         val f = JobStore.resultFile(this, call.argument<String>("id")!!)
                         if (f.exists()) f.readText() else null
                     }
@@ -193,8 +198,8 @@ class MainActivity : FlutterActivity() {
                     "transcribeProgress" -> result.success(NativeEngine.nativeTranscribeProgress())
                     "transcribeCancel" -> { NativeEngine.nativeTranscribeCancel(); result.success(null) }
                     "wavToM4a" -> async { Media.wavToM4a(call.argument<String>("wav")!!, call.argument<String>("out")!!); true }
-                    "videoDuration" -> async { Media.videoDuration(call.argument<String>("path")!!) }
-                    "saveToGallery" -> async { Media.saveVideoToGallery(this, call.argument<String>("path")!!, call.argument<String>("name")!!) }
+                    "videoDuration" -> asyncOn(io) { Media.videoDuration(call.argument<String>("path")!!) }
+                    "saveToGallery" -> asyncOn(io) { Media.saveVideoToGallery(this, call.argument<String>("path")!!, call.argument<String>("name")!!) }
                     "permissions" -> {
                         val perms = (call.argument<List<String>>("perms") ?: emptyList()).filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
                         if (perms.isEmpty()) result.success(true) else {
@@ -286,6 +291,41 @@ class MainActivity : FlutterActivity() {
         val attrs = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
         val r = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).setAudioAttributes(attrs).setOnAudioFocusChangeListener(focusListener, main).build()
         if (am.requestAudioFocus(r) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focusReq = r
+    }
+
+    // In the background with nothing playing or recording, the audio output is closed so the
+    // phone's audio hardware can sleep; it opens again when the app comes back.
+    override fun onStop() {
+        super.onStop()
+        bg.execute { try { NativeEngine.nativeSuspend() } catch (_: Throwable) {} }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        bg.execute { try { NativeEngine.nativeStart() } catch (_: Throwable) {} }
+    }
+
+    /** Facts for a problem report: the phone, the app, storage, and this app's own recent system log. */
+    private fun diagnostics(lines: Int): Map<String, Any?> {
+        val pi = packageManager.getPackageInfo(packageName, 0)
+        val st = android.os.StatFs(filesDir.path)
+        var log = ""
+        try {
+            val p = ProcessBuilder("logcat", "-d", "-v", "time", "-t", lines.toString(), "--pid=" + android.os.Process.myPid()).redirectErrorStream(true).start()
+            log = p.inputStream.bufferedReader().use { it.readText() }
+            p.destroy()
+        } catch (e: Throwable) {
+            log = "log not available: ${e.message}"
+        }
+        return mapOf(
+            "device" to "${Build.MANUFACTURER} ${Build.MODEL}", "android" to "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+            "soc" to (if (Build.VERSION.SDK_INT >= 31) "${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}" else Build.HARDWARE),
+            "app" to "${pi.versionName} (${if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else 0})",
+            "free" to st.availableBytes, "total" to st.totalBytes,
+            "cache" to (cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }),
+            "files" to (filesDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }),
+            "log" to log
+        )
     }
 
     override fun onDestroy() {

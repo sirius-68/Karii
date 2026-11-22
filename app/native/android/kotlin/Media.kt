@@ -127,10 +127,6 @@ object Media {
 
     // ------------------------------------------------------------------ muxing
     /**
-     * Combines the camera's video (no audio) with a 16-bit WAV mix into one MP4.
-     * audioOffsetSec > 0 delays the audio, < 0 trims its start.
-     */
-    /**
      * Waits until the camera has finished writing [path]: the file exists, stops growing, opens,
      * and its video track has a first frame. Returns null when it's ready, or what's wrong.
      */
@@ -171,55 +167,86 @@ object Media {
         return problem
     }
 
-    fun mux(videoPath: String, wavPath: String, outPath: String, audioOffsetSec: Double) {
+    /**
+     * Combines the video of [videoPath] (the camera's file, or an earlier finished take: only its
+     * video track is used) with a 16-bit WAV mix into one MP4. audioOffsetSec > 0 delays the
+     * audio, < 0 trims its start. Video and audio are written interleaved in time order, so the
+     * file plays and streams well everywhere. Returns the number of video frames written.
+     */
+    fun mux(videoPath: String, wavPath: String, outPath: String, audioOffsetSec: Double): Int {
         val audio = encodeAac(wavPath)
         val vex = MediaExtractor()
-        vex.setDataSource(videoPath)
-        var vTrack = -1
-        for (i in 0 until vex.trackCount) {
-            if (vex.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true) { vTrack = i; break }
-        }
-        require(vTrack >= 0) { "No video track" }
-        vex.selectTrack(vTrack)
-        val vfmt = vex.getTrackFormat(vTrack)
-        val muxer = MediaMuxer(outPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-        if (vfmt.containsKey("rotation-degrees")) muxer.setOrientationHint(vfmt.getInteger("rotation-degrees"))
-        val mv = muxer.addTrack(vfmt)
-        val ma = if (audio.format != null) muxer.addTrack(audio.format!!) else -1
-        muxer.start()
-        val maxIn = if (vfmt.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) vfmt.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) else 4 shl 20
-        val buf = ByteBuffer.allocateDirect(maxIn.coerceAtLeast(1 shl 20))
-        val info = MediaCodec.BufferInfo()
-        var v0 = -1L
-        var frames = 0
-        while (true) {
-            buf.clear()
-            val n = vex.readSampleData(buf, 0)
-            if (n < 0) break
-            if (v0 < 0) v0 = vex.sampleTime
-            info.set(0, n, vex.sampleTime - v0, if ((vex.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
-            muxer.writeSampleData(mv, buf, info)
-            frames++
-            vex.advance()
-        }
-        vex.release()
-        if (frames == 0) {
-            try { muxer.release() } catch (_: Exception) {}
-            File(outPath).delete()
-            throw IllegalStateException("the camera's video has no frames")
-        }
-        if (ma >= 0) {
-            val off = (audioOffsetSec * 1e6).toLong()
-            for (s in audio.samples) {
-                val pts = s.pts + off
-                if (pts < 0) continue
-                val bb = ByteBuffer.wrap(s.data)
-                info.set(0, s.data.size, pts, s.flags)
-                muxer.writeSampleData(ma, bb, info)
+        var muxer: MediaMuxer? = null
+        var started = false
+        try {
+            vex.setDataSource(videoPath)
+            var vTrack = -1
+            for (i in 0 until vex.trackCount) {
+                if (vex.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true) { vTrack = i; break }
             }
+            check(vTrack >= 0) { "the camera's file has no video track" }
+            vex.selectTrack(vTrack)
+            val vfmt = vex.getTrackFormat(vTrack)
+            // first pass: count the frames and find the earliest time (frames may be stored out of
+            // display order, so the first one isn't always the earliest)
+            var v0 = Long.MAX_VALUE
+            var total = 0
+            while (vex.sampleTime >= 0) {
+                v0 = minOf(v0, vex.sampleTime)
+                total++
+                if (!vex.advance()) break
+            }
+            check(total > 0) { "the camera's video has no frames" }
+            vex.seekTo(0, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            val m = MediaMuxer(outPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = m
+            if (vfmt.containsKey("rotation-degrees")) m.setOrientationHint(vfmt.getInteger("rotation-degrees"))
+            val mv = m.addTrack(vfmt)
+            val ma = if (audio.format != null && audio.samples.isNotEmpty()) m.addTrack(audio.format!!) else -1
+            m.start()
+            started = true
+            val maxIn = if (vfmt.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) vfmt.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) else 4 shl 20
+            val buf = ByteBuffer.allocateDirect(maxIn.coerceAtLeast(2 shl 20))
+            val info = MediaCodec.BufferInfo()
+            val off = (audioOffsetSec * 1e6).toLong()
+            var ai = 0
+            fun writeAudioUpTo(t: Long) {
+                if (ma < 0) return
+                while (ai < audio.samples.size) {
+                    val s = audio.samples[ai]
+                    val pts = s.pts + off
+                    if (pts > t) break
+                    ai++
+                    if (pts < 0) continue
+                    info.set(0, s.data.size, pts, s.flags)
+                    m.writeSampleData(ma, ByteBuffer.wrap(s.data), info)
+                }
+            }
+            var frames = 0
+            while (true) {
+                buf.clear()
+                val n = vex.readSampleData(buf, 0)
+                if (n < 0) break
+                val t = vex.sampleTime - v0
+                writeAudioUpTo(t)
+                info.set(0, n, t, if ((vex.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
+                m.writeSampleData(mv, buf, info)
+                frames++
+                if (!vex.advance()) break
+            }
+            writeAudioUpTo(Long.MAX_VALUE)
+            check(frames > 0) { "the camera's video has no frames" }
+            m.stop()
+            started = false
+            return frames
+        } catch (e: Throwable) {
+            if (started) try { muxer?.stop() } catch (_: Throwable) {}
+            File(outPath).delete()
+            throw e
+        } finally {
+            try { vex.release() } catch (_: Throwable) {}
+            try { muxer?.release() } catch (_: Throwable) {}
         }
-        muxer.stop()
-        muxer.release()
     }
 
     /**
@@ -313,9 +340,10 @@ object Media {
         fmt.setInteger(MediaFormat.KEY_BIT_RATE, 192_000)
         fmt.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 1 shl 16)
         val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+        val inp = FileInputStream(wavPath)
+        try {
         codec.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         codec.start()
-        val inp = FileInputStream(wavPath)
         inp.skip(44)
         val chunk = ByteArray(4096 * ch)
         val samples = ArrayList<AacSample>()
@@ -324,10 +352,13 @@ object Media {
         var framesIn = 0L
         var inDone = false
         var outDone = false
+        var idle = 0
         while (!outDone) {
+            check(idle++ < 3000) { "the sound encoder stopped responding" }
             if (!inDone) {
                 val ii = codec.dequeueInputBuffer(10_000)
                 if (ii >= 0) {
+                    idle = 0
                     val ib = codec.getInputBuffer(ii)!!
                     ib.clear()
                     val want = minOf(chunk.size, ib.capacity())
@@ -347,6 +378,7 @@ object Media {
             if (oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 outFmt = codec.outputFormat
             } else if (oi >= 0) {
+                idle = 0
                 val ob = codec.getOutputBuffer(oi)!!
                 if (info.size > 0 && (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
                     val data = ByteArray(info.size)
@@ -358,49 +390,65 @@ object Media {
                 if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outDone = true
             }
         }
-        inp.close()
         codec.stop()
-        codec.release()
         return Aac(outFmt, samples)
+        } finally {
+            try { inp.close() } catch (_: Throwable) {}
+            try { codec.release() } catch (_: Throwable) {}
+        }
     }
 
     /** Encodes a WAV to an .m4a (AAC) audio file. */
     fun wavToM4a(wavPath: String, outPath: String) {
         val audio = encodeAac(wavPath)
         val muxer = MediaMuxer(outPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-        val ma = muxer.addTrack(audio.format!!)
-        muxer.start()
-        val info = MediaCodec.BufferInfo()
-        for (s in audio.samples) {
-            info.set(0, s.data.size, s.pts, s.flags)
-            muxer.writeSampleData(ma, ByteBuffer.wrap(s.data), info)
+        try {
+            val ma = muxer.addTrack(checkNotNull(audio.format) { "the sound couldn't be encoded" })
+            muxer.start()
+            val info = MediaCodec.BufferInfo()
+            for (s in audio.samples) {
+                info.set(0, s.data.size, s.pts, s.flags)
+                muxer.writeSampleData(ma, ByteBuffer.wrap(s.data), info)
+            }
+            muxer.stop()
+        } finally {
+            try { muxer.release() } catch (_: Throwable) {}
         }
-        muxer.stop()
-        muxer.release()
     }
 
     // ------------------------------------------------------------------ gallery
+    /** Copies a finished take into the phone's gallery: videos to Movies/Lectern, sound-only takes to Music/Lectern. */
     fun saveVideoToGallery(ctx: Context, path: String, name: String): String {
         val src = File(path)
+        val audio = path.endsWith(".m4a")
+        val ext = if (audio) ".m4a" else ".mp4"
+        val safe = name.replace(Regex("[\\\\/:*?\"<>|]"), " ").trim().ifEmpty { "Take" }
+        val fileName = if (safe.endsWith(ext)) safe else safe + ext
         if (Build.VERSION.SDK_INT >= 29) {
             val values = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, name)
-                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Lectern")
-                put(MediaStore.Video.Media.IS_PENDING, 1)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, if (audio) "audio/mp4" else "video/mp4")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, (if (audio) Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES) + "/Lectern")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val r = ctx.contentResolver
-            val uri = r.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: throw IllegalStateException("MediaStore insert failed")
-            r.openOutputStream(uri)!!.use { o -> src.inputStream().use { it.copyTo(o) } }
+            val col = if (audio) MediaStore.Audio.Media.EXTERNAL_CONTENT_URI else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            val uri = r.insert(col, values) ?: throw IllegalStateException("MediaStore insert failed")
+            try {
+                r.openOutputStream(uri)!!.use { o -> src.inputStream().use { it.copyTo(o) } }
+            } catch (e: Throwable) {
+                r.delete(uri, null, null)  // no half-written entry left in the gallery
+                throw e
+            }
             values.clear()
-            values.put(MediaStore.Video.Media.IS_PENDING, 0)
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
             r.update(uri, values, null, null)
             return uri.toString()
         } else {
             @Suppress("DEPRECATION")
-            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Lectern")
+            val dir = File(Environment.getExternalStoragePublicDirectory(if (audio) Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES), "Lectern")
             dir.mkdirs()
-            val dst = File(dir, name)
+            val dst = File(dir, fileName)
             src.copyTo(dst, overwrite = true)
             return dst.path
         }

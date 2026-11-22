@@ -7,7 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
+import '../core/log.dart';
 import '../core/model.dart';
+import '../core/report.dart';
 import '../core/store.dart';
 import '../engine/engine.dart';
 import '../core/text.dart';
@@ -46,6 +48,8 @@ class Player extends StatefulWidget {
 class PlayerState extends State<Player> {
   VideoPlayerController? c;
   String? err;
+  bool _gone = false;
+  int _gen = 0, _retries = 0;
 
   @override
   void initState() {
@@ -53,33 +57,86 @@ class PlayerState extends State<Player> {
     open();
   }
 
+  void _onPlayer() {
+    final v = c;
+    if (v == null || _gone) return;
+    if (v.value.hasError && err == null) {
+      // the phone's video decoder gave up (often right after the camera was in use): try again
+      Log.add('player', 'error', {'error': v.value.errorDescription, 'retry': _retries});
+      if (_retries < 2) {
+        _retries++;
+        Future.delayed(const Duration(milliseconds: 700), () {
+          if (!_gone) open();
+        });
+      } else {
+        setState(() => err = 'This phone’s player couldn’t show the take (${v.value.errorDescription ?? 'unknown error'}). The file itself is kept: share it or save it to the gallery to watch it in another player.');
+      }
+      return;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Opens (or re-opens) the file. A player that finishes opening after this widget is gone, or
+  /// after a newer open started, is closed again so no decoder is left behind.
   Future<void> open() async {
+    final gen = ++_gen;
     final old = c;
     c = null;
-    if (mounted) setState(() {});
+    if (mounted) setState(() => err = null);
+    old?.removeListener(_onPlayer);
     await old?.dispose();
-    final n = VideoPlayerController.file(File(widget.path));
+    if (_gone || gen != _gen) return;
+    final f = File(widget.path);
+    if (!f.existsSync()) {
+      Log.add('player', 'file missing', {'file': widget.path.split('/').last});
+      if (mounted) setState(() => err = 'This take’s file is no longer on the phone.');
+      return;
+    }
+    final n = VideoPlayerController.file(f);
+    final sw = Stopwatch()..start();
     try {
-      await n.initialize();
+      await n.initialize().timeout(const Duration(seconds: 15));
+      if (_gone || gen != _gen) {
+        await n.dispose();
+        return;
+      }
       await n.setLooping(true);
       // some Android players draw nothing until the first seek or play
       await n.seekTo(Duration.zero);
-      n.addListener(() {
-        if (mounted) setState(() {});
-      });
+      if (_gone || gen != _gen) {
+        await n.dispose();
+        return;
+      }
+      n.addListener(_onPlayer);
       c = n;
-      err = null;
+      Log.add('player', 'open', {'ms': sw.elapsedMilliseconds, 'size': '${n.value.size.width.round()}x${n.value.size.height.round()}', 'seconds': n.value.duration.inMilliseconds / 1000, 'bytes': f.lengthSync()});
     } catch (e) {
-      err = 'This take can’t be played: $e';
-      await n.dispose();
+      Log.add('player', 'open failed', {'error': '$e', 'ms': sw.elapsedMilliseconds});
+      try {
+        await n.dispose();
+      } catch (_) {}
+      if (_gone || gen != _gen) return;
+      err = 'This take can’t be played here: $e';
     }
     if (mounted) setState(() {});
   }
 
   Future<void> pause() async => c?.pause();
 
+  /// Closes the player and waits until the decoder is released.
+  Future<void> close() async {
+    _gen++;
+    final v = c;
+    c = null;
+    v?.removeListener(_onPlayer);
+    await v?.dispose();
+  }
+
   @override
   void dispose() {
+    _gone = true;
+    _gen++;
+    c?.removeListener(_onPlayer);
     c?.dispose();
     super.dispose();
   }
@@ -87,7 +144,25 @@ class PlayerState extends State<Player> {
   @override
   Widget build(BuildContext context) {
     final v = c;
-    if (err != null) return SizedBox(height: 200, child: Center(child: Text(err!, style: const TextStyle(color: C.muted))));
+    if (err != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Column(children: [
+          if (widget.poster != null && File(widget.poster!).existsSync())
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ClipRRect(borderRadius: BorderRadius.circular(18), child: Image.file(File(widget.poster!), height: 220, fit: BoxFit.cover)),
+            ),
+          Text(err!, textAlign: TextAlign.center, style: const TextStyle(color: C.muted)),
+          TextButton(
+              onPressed: () {
+                _retries = 0;
+                open();
+              },
+              child: const Text('Try again')),
+        ]),
+      );
+    }
     if (v == null || !v.value.isInitialized) return const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()));
     final pos = v.value.position.inMilliseconds / 1000, dur = v.value.duration.inMilliseconds / 1000;
     return Column(mainAxisSize: MainAxisSize.min, children: [
@@ -209,7 +284,15 @@ class _TakeEditorState extends State<TakeEditor> {
   late bool duck = duckDb > 0;
   late double duckAmount = duckDb > 0 ? duckDb : 9;
   bool get hasStems => d.voice != null && File(d.voice!).existsSync();
-  bool get canResync => isVideo && d.m['raw'] != null && File('${d.m['raw']}').existsSync() && hasStems;
+  // the video of a take is its finished file (older drafts also kept the camera's own copy)
+  String? get videoSource {
+    final raw = d.m['raw'] as String?;
+    if (raw != null && File(raw).existsSync()) return raw;
+    return isVideo && File(d.video).existsSync() ? d.video : null;
+  }
+
+  bool get canResync => isVideo && videoSource != null && hasStems;
+  bool get canRecover => !isVideo && d.meta['cameraUsed'] == true && d.m['raw'] != null && File('${d.m['raw']}').existsSync() && hasStems;
   bool get canBalance => hasStems && d.music != null && File(d.music!).existsSync();
   Map<String, dynamic> get mixInfo => ((d.meta['mix'] as Map?) ?? {}).cast<String, dynamic>();
 
@@ -234,23 +317,77 @@ class _TakeEditorState extends State<TakeEditor> {
         mode: ((d.meta['modeIndex'] as num?) ?? 0).toInt(),
         wav: '${d.video}.mix.wav',
         out: tmp,
-        video: isVideo ? '${d.m['raw']}' : null,
+        video: isVideo ? videoSource : null,
         offset: isVideo ? base + delta : null,
         balance: balance,
         fadeIn: fadeIn,
         fadeOut: fadeOut,
         duckDb: duck ? duckAmount : 0,
       );
+      if (isVideo && !mix.hasVideo) {
+        // never replace a take that has its picture with one that lost it
+        try {
+          File(tmp).deleteSync();
+        } catch (_) {}
+        throw 'the picture couldn’t be kept (${mix.videoProblem ?? 'unknown reason'})';
+      }
+      await player.currentState?.close();
       await File(tmp).rename(d.video);
+      Log.add('take', 'remixed', {'id': d.id, 'mix': mix.toJson()});
       d.edit = {...d.edit, 'delta': delta, 'balance': balance, 'fadeIn': fadeIn, 'fadeOut': fadeOut, 'duckDb': duck ? duckAmount : 0.0};
       d.m['meta'] = {...d.meta, 'mix': {...mix.toJson(), 'offset': base}};
       Store.i.save();
       await player.currentState?.open();
       if (mounted) toast(context, 'Updated · ${mix.lufs.toStringAsFixed(1)} LUFS');
     } catch (e) {
+      Log.add('take', 'remix failed', {'id': d.id, 'error': '$e'});
       if (mounted) toast(context, 'Couldn’t update the take: $e');
+      await player.currentState?.open();
     }
     if (mounted) setState(() => busy = false);
+  }
+
+  /// The camera's own file is still here but its picture wasn't used: try combining it again.
+  Future<void> recoverPicture() async {
+    setState(() => busy = true);
+    await player.currentState?.close();
+    final out = d.video.replaceFirst(RegExp(r'\.m4a$'), '.mp4');
+    final tmp = '$out.tmp.mp4';
+    try {
+      final mix = await Engine.i.finishTake(
+        voice: d.voice!,
+        music: d.music,
+        mode: ((d.meta['modeIndex'] as num?) ?? 0).toInt(),
+        wav: '$out.mix.wav',
+        out: tmp,
+        video: '${d.m['raw']}',
+        offset: ((d.meta['offset'] as num?) ?? 0).toDouble(),
+        balance: balance,
+        fadeIn: fadeIn,
+        fadeOut: fadeOut,
+        duckDb: duck ? duckAmount : 0,
+      );
+      if (!mix.hasVideo) throw mix.videoProblem ?? 'the camera’s file has no usable picture';
+      final old = d.video;
+      await File(tmp).rename(out);
+      if (old != out) _rm(old);
+      final info = await Engine.i.videoInfo(out, thumb: '$out.jpg');
+      d.m['video'] = out;
+      d.m['isVideo'] = true;
+      d.m['thumb'] = info['thumb'];
+      d.m['meta'] = {...d.meta, 'video': info, 'mix': {...mix.toJson(), 'offset': d.meta['offset']}}..remove('videoProblem');
+      Store.i.save(now: true);
+      Log.add('take', 'picture recovered', {'id': d.id});
+      if (mounted) toast(context, 'The picture is back.');
+    } catch (e) {
+      Log.add('take', 'picture not recovered', {'id': d.id, 'error': '$e'});
+      try {
+        File(tmp).deleteSync();
+      } catch (_) {}
+      if (mounted) toast(context, 'The picture couldn’t be recovered: $e');
+    }
+    if (mounted) setState(() => busy = false);
+    await player.currentState?.open();
   }
 
   Future<void> save() async {
@@ -274,7 +411,8 @@ class _TakeEditorState extends State<TakeEditor> {
         await Engine.i.saveToGallery(d.video, name);
         galleryNote = isVideo ? ' and to your gallery' : ' and to Music';
       } catch (e) {
-        galleryNote = ' (the gallery copy failed)';
+        Log.add('take', 'gallery copy failed', {'error': '$e'});
+        galleryNote = ' (the gallery copy failed: is the phone full?)';
       }
     }
     Store.i.set('saveToGallery', gallery);
@@ -282,9 +420,11 @@ class _TakeEditorState extends State<TakeEditor> {
     Store.i.drafts.removeWhere((x) => x.id == d.id);
     deleteDraftFiles(d, keepOut: true);
     Store.i.save(now: true);
+    Log.add('take', 'saved', {'id': d.id, 'gallery': galleryNote ?? 'no'});
     if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
     Navigator.pop(context);
-    toast(context, 'Saved to Recordings${galleryNote ?? ''}');
+    messenger?.showSnackBar(SnackBar(content: Text('Saved to Recordings${galleryNote ?? ''}'), duration: const Duration(milliseconds: 2800)));
   }
 
   Future<void> share() async {
@@ -331,7 +471,21 @@ class _TakeEditorState extends State<TakeEditor> {
               margin: const EdgeInsets.only(top: 12),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(color: const Color(0x22FCD34D), borderRadius: BorderRadius.circular(14)),
-              child: Text(pictureProblem!, style: const TextStyle(color: C.ink2, fontSize: 13.5)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(pictureProblem!, style: const TextStyle(color: C.ink2, fontSize: 13.5)),
+                Wrap(spacing: 4, children: [
+                  if (canRecover) TextButton(onPressed: recoverPicture, child: const Text('Try to recover the picture')),
+                  TextButton(onPressed: () => sendProblemReport(context, about: 'take ${d.id}'), child: const Text('Send a problem report')),
+                ]),
+              ]),
+            ),
+          if (mixInfo['quiet'] == true)
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: C.s2, borderRadius: BorderRadius.circular(14)),
+              child: const Text('Hardly any voice was recorded in this take, so the sound was left quiet instead of turning the room’s hiss up. Speak closer to the phone, or raise Mic level in the recording settings.',
+                  style: TextStyle(color: C.ink2, fontSize: 13.5)),
             ),
           TextField(
             controller: title,

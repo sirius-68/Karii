@@ -618,6 +618,13 @@ std::vector<float> musicEnvelope(const float* voice, int64_t n, int fs, const Fi
   return env;
 }
 
+double voiceMaxGainDb(double voiceLufs, double maxGainDb) {
+  const double hi = -46, lo = -56, floorDb = 6;  // LUFS where the range starts and stops shrinking
+  if (voiceLufs >= hi) return maxGainDb;
+  if (voiceLufs <= lo) return std::min(maxGainDb, floorDb);
+  return std::min(maxGainDb, floorDb + (maxGainDb - floorDb) * (voiceLufs - lo) / (hi - lo));
+}
+
 FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musicWav, const std::string& outWav, const FinalizeOptions& o) {
   FinalizeResult res;
   Wav v;
@@ -659,7 +666,7 @@ FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musi
     for (int64_t i = 0; i < mn; i++) { ml[size_t(i)] = m.data[size_t(i) * 2]; mr[size_t(i)] = m.data[size_t(i) * 2 + 1]; }
     m.data.clear();
     res.musicLufs = integratedLoudness({ml.data(), mr.data()}, n, fs);
-    const double gv = res.voiceLufs > -70 ? clampGain(-16 - res.voiceLufs, o.maxGainDb) : 0;
+    const double gv = res.voiceLufs > -70 ? clampGain(-16 - res.voiceLufs, voiceMaxGainDb(res.voiceLufs, o.maxGainDb)) : 0;
     const double gm = res.musicLufs > -70 ? clampGain(-16 - 4 + o.musicBalanceDb - res.musicLufs, 24) : 0;
     const float a = dbToLin(gv), b = dbToLin(gm);
     // music envelope over the take: fade in, fade out, and ducking under the voice
@@ -681,7 +688,9 @@ FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musi
   voice.shrink_to_fit();
   // master loudness
   const double before = integratedLoudness({L.data(), R.data()}, n, fs);
-  res.gainDb = before > -70 ? clampGain(o.targetLufs - before, o.maxGainDb) : 0;
+  res.quiet = res.voiceLufs < -52;
+  // voice only: a silent recording stays quiet; with music, the mix is already balanced
+  res.gainDb = before > -70 ? clampGain(o.targetLufs - before, mix ? o.maxGainDb : voiceMaxGainDb(res.voiceLufs, o.maxGainDb)) : 0;
   const float g = dbToLin(res.gainDb);
   for (int64_t i = 0; i < n; i++) { L[size_t(i)] *= g; R[size_t(i)] *= g; }
   // true-peak limiter: required gain per sample, min over +-W, averaged over +-W, slow release
@@ -745,8 +754,8 @@ FinalizeResult finalizeTake(const std::string& voiceWav, const std::string& musi
 std::string toJson(const FinalizeResult& r) {
   char b[512];
   std::snprintf(b, sizeof b,
-                "{\"ok\":%s,\"voiceLufs\":%.2f,\"musicLufs\":%.2f,\"outLufs\":%.2f,\"truePeak\":%.2f,\"gain\":%.2f,\"seconds\":%.3f,\"duckMin\":%.2f,\"error\":\"%s\"}",
-                r.ok ? "true" : "false", r.voiceLufs, r.musicLufs, r.outLufs, r.truePeakDb, r.gainDb, r.seconds, r.duckMinDb, r.error.c_str());
+                "{\"ok\":%s,\"voiceLufs\":%.2f,\"musicLufs\":%.2f,\"outLufs\":%.2f,\"truePeak\":%.2f,\"gain\":%.2f,\"seconds\":%.3f,\"duckMin\":%.2f,\"quiet\":%s,\"error\":\"%s\"}",
+                r.ok ? "true" : "false", r.voiceLufs, r.musicLufs, r.outLufs, r.truePeakDb, r.gainDb, r.seconds, r.duckMinDb, r.quiet ? "true" : "false", r.error.c_str());
   return b;
 }
 
