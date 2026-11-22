@@ -41,6 +41,7 @@ jobs:
         run: |
           set -o pipefail
           flutter pub get 2>&1 | tee -a ../build.log
+          python3 tool/patch_plugins.py 2>&1 | tee -a ../build.log
           # the exact versions of the camera and video plugins this build uses (they are not pinned)
           flutter pub deps --style=compact 2>/dev/null | grep -E "^- (camera|video_player|share_plus|path_provider)" | tee ../versions.log || true
 
@@ -188,6 +189,7 @@ jobs:
           flutter create --org com.lectern --project-name lectern --platforms android --no-pub . 2>&1 | tail -n 3
           python3 tool/patch_android.py
           flutter pub get 2>&1 | tail -n 3
+          python3 tool/patch_plugins.py
           flutter pub deps --style=compact 2>/dev/null | grep -E "^- (camera|video_player)" | tee ../versions.log || true
 
       - name: Build the app once before the emulator starts (native code, Gradle)

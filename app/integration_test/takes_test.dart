@@ -168,6 +168,7 @@ Future<Draft?> take(
     'quiet': mix['quiet'],
     'poster': d.m['thumb'] != null && File('${d.m['thumb']}').existsSync(),
     'cameraCopyKept': d.m['raw'] != null,
+    'cameraHadAudio': ((d.meta['rawVideo'] as Map?) ?? {})['hasAudio'],
   };
   // ignore: avoid_print
   print('TAKE $name ${jsonEncode(summary, toEncodable: (o) => '$o')}');
@@ -178,6 +179,10 @@ Future<Draft?> take(
   if (((v['luma'] as num?) ?? -1) < 3) fail_(name, 'the picture is black (brightness ${v['lumas']})');
   if (d.m['thumb'] == null) fail_(name, 'no poster frame');
   if (d.m['raw'] != null && d.m['isVideo'] == true) fail_(name, 'the camera copy was kept although the take has its picture');
+  // the camera must not record from the microphone: Lectern's own recorder is the only capture
+  final rawInfo = ((d.meta['rawVideo'] as Map?) ?? {}).cast<String, dynamic>();
+  if (rawInfo['hasAudio'] == true) fail_(name, 'the camera recorded an audio track of its own (it opened the microphone)');
+  if (v['hasAudio'] != true) fail_(name, 'the finished take has no sound track');
   // the player: opens, has a picture size, and time moves when it plays
   final opened = await waitFor(t, () {
     final ps = t.state<PlayerState>(find.byType(Player));
@@ -197,9 +202,8 @@ Future<Draft?> take(
   }
   // leave the editor the way a performer would
   if (leave == 'save') {
-    await t.ensureVisible(find.text('Save take'));
-    await pumpFor(t, const Duration(milliseconds: 400));
-    await t.tap(find.text('Save take'), warnIfMissed: false);
+    // (the button is further down a lazily built list: call what it calls)
+    (t.state(find.byType(TakeEditor)) as dynamic).save();
     final saved = await waitFor(t, () => !onEditor(t), timeout: const Duration(seconds: 40));
     if (!saved) fail_(name, 'saving the take did not finish');
     if (Store.i.recs.isEmpty || Store.i.recs.first.id != d.id) fail_(name, 'the saved take is not in Recordings');

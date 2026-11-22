@@ -260,6 +260,7 @@ object Media {
         try {
             r.setDataSource(path)
             val hasVideo = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) == "yes"
+            val hasAudio = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
             val w = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
             val h = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
             val rot = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
@@ -291,7 +292,7 @@ object Media {
             }
             b?.recycle()
             return mapOf(
-                "hasVideo" to hasVideo, "width" to w, "height" to h, "rotation" to rot, "duration" to durMs / 1000.0,
+                "hasVideo" to hasVideo, "hasAudio" to hasAudio, "width" to w, "height" to h, "rotation" to rot, "duration" to durMs / 1000.0,
                 "lumas" to lumas, "luma" to (if (lumas.isEmpty()) -1.0 else lumas.max()), "thumb" to thumb
             )
         } finally {

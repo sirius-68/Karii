@@ -13,5 +13,5 @@ GRANT=$!
 flutter test integration_test/takes_test.dart -d emulator-5554 --reporter expanded 2>&1 | tee ../t_device_full.log
 rc=${PIPESTATUS[0]}
 kill $GRANT 2>/dev/null || true
-adb logcat -d -v time 2>/dev/null | grep -E "CameraX|Recorder|VideoCapture|MediaCodec|ExoPlayer|lectern|AndroidRuntime|FATAL|E/flutter" | tail -n 300 > ../device_logcat.log || true
+adb logcat -d -v time 2>/dev/null | grep -E "CameraX|Recorder|VideoCapture|AudioSource|AudioRecord|AAudio|ExoPlayer|lectern|AndroidRuntime|FATAL|E/flutter" | tail -n 300 > ../device_logcat.log || true
 exit $rc
