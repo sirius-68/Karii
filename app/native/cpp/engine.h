@@ -86,6 +86,20 @@ class Engine {
   uint32_t outCalls_ = 0, inCalls_ = 0;
   std::atomic<int64_t> inLatencyNs_{20000000};
   int32_t outXr0_ = 0, inXr0_ = 0;
+  // how the microphone's timeline looked during a take (for diagnosis): age of the capture
+  // time of each block, blocks that fell back to an estimate, blocks while music was heard
+  std::atomic<int64_t> capAgeMinNs_{0}, capAgeMaxNs_{0};
+  std::atomic<int32_t> blocks_{0}, blocksEstimated_{0}, blocksWithMusic_{0};
+
+ public:
+  // [min age ms, max age ms, blocks, blocks with an estimated capture time, blocks with music]
+  void captureStats(double* out5) const {
+    out5[0] = capAgeMinNs_.load() / 1e6;
+    out5[1] = capAgeMaxNs_.load() / 1e6;
+    out5[2] = blocks_.load();
+    out5[3] = blocksEstimated_.load();
+    out5[4] = blocksWithMusic_.load();
+  }
 };
 
 }  // namespace lectern

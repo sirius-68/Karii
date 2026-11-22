@@ -76,14 +76,16 @@ JNIEXPORT jboolean JNICALL FN(nativeStartRecord)(JNIEnv* env, jobject, jstring v
 
 JNIEXPORT void JNICALL FN(nativePauseRecord)(JNIEnv*, jobject, jboolean p) { Engine::get().pauseRecord(p); }
 
-// [seconds, rate, firstCaptureNs, lastCaptureNs, gapSeconds, lostSeconds, musicJumps, hasMusic, outXruns, inXruns]
+// [seconds, rate, firstCaptureNs, lastCaptureNs, gapSeconds, lostSeconds, musicJumps, hasMusic, outXruns, inXruns,
+//  min capture age ms, max capture age ms, blocks, blocks with estimated capture time, blocks with music]
 JNIEXPORT jdoubleArray JNICALL FN(nativeStopRecord)(JNIEnv* env, jobject) {
   int32_t ox = 0, ix = 0;
   const lectern::RecStats s = Engine::get().stopRecord(&ox, &ix);
-  double v[10] = {s.seconds, double(s.rate), double(s.firstCaptureNs), double(s.lastCaptureNs), double(s.gapFrames) / s.rate,
+  double v[15] = {s.seconds, double(s.rate), double(s.firstCaptureNs), double(s.lastCaptureNs), double(s.gapFrames) / s.rate,
                   double(s.overflowFrames) / s.rate, double(s.musicJumps), s.hasMusic ? 1.0 : 0.0, double(ox), double(ix)};
-  jdoubleArray a = env->NewDoubleArray(10);
-  env->SetDoubleArrayRegion(a, 0, 10, v);
+  Engine::get().captureStats(v + 10);
+  jdoubleArray a = env->NewDoubleArray(15);
+  env->SetDoubleArrayRegion(a, 0, 15, v);
   return a;
 }
 

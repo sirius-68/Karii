@@ -85,6 +85,10 @@ class RecResult {
   final double seconds, rate, gapSec, lostSec;
   final int firstCaptureNs, lastCaptureNs, musicJumps, outXruns, inXruns;
   final bool hasMusic;
+  // the microphone's timeline: age of each block's capture time, blocks whose capture time had
+  // to be estimated, and blocks recorded while music was being heard
+  final double capAgeMinMs, capAgeMaxMs;
+  final int blocks, blocksEstimated, blocksWithMusic;
   RecResult(List<dynamic> v)
       : seconds = (v[0] as num).toDouble(),
         rate = (v[1] as num).toDouble(),
@@ -95,7 +99,12 @@ class RecResult {
         musicJumps = (v[6] as num).toInt(),
         hasMusic = (v[7] as num) > 0.5,
         outXruns = (v[8] as num).toInt(),
-        inXruns = (v[9] as num).toInt();
+        inXruns = (v[9] as num).toInt(),
+        capAgeMinMs = v.length > 14 ? (v[10] as num).toDouble() : 0,
+        capAgeMaxMs = v.length > 14 ? (v[11] as num).toDouble() : 0,
+        blocks = v.length > 14 ? (v[12] as num).toInt() : 0,
+        blocksEstimated = v.length > 14 ? (v[13] as num).toInt() : 0,
+        blocksWithMusic = v.length > 14 ? (v[14] as num).toInt() : 0;
   bool get struggled => gapSec > 0.25 || lostSec > 0;
   Map<String, dynamic> toJson() => {
         'seconds': seconds,
@@ -105,6 +114,10 @@ class RecResult {
         'jumps': musicJumps,
         'outXruns': outXruns,
         'inXruns': inXruns,
+        'capAgeMs': [capAgeMinMs.round(), capAgeMaxMs.round()],
+        'blocks': blocks,
+        'estimated': blocksEstimated,
+        'withMusic': blocksWithMusic,
       };
 }
 

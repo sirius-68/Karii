@@ -169,12 +169,24 @@ oboe::DataCallbackResult Engine::InCb::onAudioReady(oboe::AudioStream* s, void* 
     auto ts = s->getTimestamp(CLOCK_MONOTONIC);
     if (ts && ts.value().position > 0) e.inClk_.setTimestamp(ts.value().position, ts.value().timestamp);
   }
-  // when was the first sample of this block captured?
+  // when was the first sample of this block captured? The hardware says; but a capture time
+  // must lie in the recent past, and some inputs report nonsense (another clock, zero, a
+  // position that stands still). Then the time is estimated from now and the input latency.
+  const int64_t now = monoNs();
   int64_t cap = e.inClk_.nsAtFrame(double(f0));
-  if (cap == 0) cap = monoNs() - e.inLatencyNs_.load(std::memory_order_relaxed) - int64_t(double(n) * 1e9 / e.inClk_.rate());
+  const bool sane = cap != 0 && cap <= now && now - cap < 1500000000LL;
+  if (!sane) cap = now - e.inLatencyNs_.load(std::memory_order_relaxed) - int64_t(double(n) * 1e9 / e.inClk_.rate());
+  if (e.rec_.recording()) {
+    const int64_t age = now - cap;
+    if (e.blocks_.load(std::memory_order_relaxed) == 0 || age < e.capAgeMinNs_.load(std::memory_order_relaxed)) e.capAgeMinNs_.store(age, std::memory_order_relaxed);
+    if (age > e.capAgeMaxNs_.load(std::memory_order_relaxed)) e.capAgeMaxNs_.store(age, std::memory_order_relaxed);
+    e.blocks_.fetch_add(1, std::memory_order_relaxed);
+    if (!sane) e.blocksEstimated_.fetch_add(1, std::memory_order_relaxed);
+  }
   // and what was the singer hearing at that moment?
   bool playing = false;
   const double pos = e.player_.posAtOutFrame(e.outClk_.frameAt(cap, true), &playing);
+  if (playing && e.rec_.recording()) e.blocksWithMusic_.fetch_add(1, std::memory_order_relaxed);
   e.rec_.onInput(static_cast<const float*>(data), n, cap, playing ? pos : NAN, e.player_.speed());
   return oboe::DataCallbackResult::Continue;
 }
@@ -227,6 +239,11 @@ bool Engine::startRecord(const std::string& voicePath, const std::string& musicP
     outXr0_ = out_ && out_->getXRunCount() ? out_->getXRunCount().value() : 0;
     inXr0_ = in_->getXRunCount() ? in_->getXRunCount().value() : 0;
   }
+  capAgeMinNs_.store(0);
+  capAgeMaxNs_.store(0);
+  blocks_.store(0);
+  blocksEstimated_.store(0);
+  blocksWithMusic_.store(0);
   MusicRegion reg;
   reg.start = player_.regionStart();
   reg.end = player_.regionEnd();
